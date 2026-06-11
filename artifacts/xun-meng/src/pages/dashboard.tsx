@@ -1,102 +1,88 @@
-import React from "react";
-import { useListDreams, useGetDreamStats } from "@workspace/api-client-react";
+import { useGetActiveCharacter, getGetActiveCharacterQueryKey } from "@workspace/api-client-react";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
-import { Sparkles, Calendar, Wind } from "lucide-react";
-import { format } from "date-fns";
+import { Moon, MessageCircle, BookOpen, Users, Plus } from "lucide-react";
+import { CompanionOrb } from "@/components/companion-orb";
 
 export default function Dashboard() {
-  const { data: dreams, isLoading } = useListDreams();
-  const { data: stats } = useGetDreamStats();
+  const { data: activeCharacter, isLoading } = useGetActiveCharacter({
+    query: { queryKey: getGetActiveCharacterQueryKey() }
+  });
 
-  const container = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1
-      }
-    }
-  };
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center"><CompanionOrb size="sm" isSpeaking /></div>;
+  }
 
-  const item = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0 }
-  };
+  if (!activeCharacter) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[80vh] space-y-6 animate-in fade-in zoom-in duration-500">
+        <div className="w-32 h-32 rounded-full border-2 border-dashed border-primary/30 flex items-center justify-center text-primary/30 mb-4">
+          <Moon size={40} />
+        </div>
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-serif text-white/90">还没有陪伴者</h1>
+          <p className="text-muted-foreground text-sm">创建一个懂你的 AI 梦境陪伴者</p>
+        </div>
+        <Link 
+          href="/characters/new" 
+          className="bg-primary text-primary-foreground px-6 py-3 rounded-full flex items-center gap-2 hover:bg-primary/90 transition-colors"
+          data-testid="link-create-character"
+        >
+          <Plus size={18} />
+          <span>创建你的第一个角色</span>
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8">
-      <header className="text-center pt-8 pb-4">
-        <h1 className="text-4xl font-serif text-transparent bg-clip-text bg-gradient-to-br from-white to-primary/60 tracking-wider mb-2">巡梦</h1>
-        <p className="text-muted-foreground text-sm tracking-widest">记录梦，理解自己</p>
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-100px)] animate-in fade-in duration-700">
+      <header className="w-full flex justify-between items-center py-4 absolute top-0">
+        <div className="font-serif text-xl tracking-widest text-white/80">巡梦</div>
       </header>
 
-      {/* Stats Summary */}
-      {stats && stats.total > 0 && (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }} 
-          animate={{ opacity: 1, scale: 1 }} 
-          className="glass-panel rounded-2xl p-5 flex justify-between items-center"
-        >
-          <div className="text-center">
-            <div className="text-2xl font-bold text-foreground">{stats.total}</div>
-            <div className="text-xs text-muted-foreground">梦境总数</div>
+      <div className="flex flex-col items-center justify-center flex-1 w-full max-w-sm mx-auto space-y-10 mt-12">
+        <div className="flex flex-col items-center space-y-6">
+          <CompanionOrb size="lg" isSpeaking={false} />
+          
+          <div className="text-center space-y-1">
+            <h2 className="text-3xl font-serif text-white tracking-wide">{activeCharacter.name}</h2>
+            <p className="text-muted-foreground text-sm">{activeCharacter.role || "你的梦境陪伴者"}</p>
           </div>
-          <div className="w-px h-8 bg-border" />
-          <div className="text-center">
-            <div className="text-2xl font-bold text-primary">{stats.recurringCount}</div>
-            <div className="text-xs text-muted-foreground">反复出现</div>
-          </div>
-          <div className="w-px h-8 bg-border" />
-          <div className="text-center">
-            <div className="text-2xl font-bold text-secondary">{stats.recentKeywords?.[0] || '-'}</div>
-            <div className="text-xs text-muted-foreground">核心意象</div>
-          </div>
-        </motion.div>
-      )}
 
-      {/* Dreams List */}
-      <div className="space-y-4">
-        <h2 className="text-lg font-medium flex items-center gap-2 text-foreground/80 px-1">
-          <Sparkles size={18} className="text-primary" /> 近期梦境
-        </h2>
+          <div className="text-xs text-primary/70 tracking-widest px-4 py-1.5 rounded-full border border-primary/20 bg-primary/5">
+            正在等你说梦...
+          </div>
+        </div>
 
-        {isLoading ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="glass-panel h-28 rounded-2xl animate-pulse bg-card/20" />
-            ))}
-          </div>
-        ) : dreams && dreams.length > 0 ? (
-          <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
-            {dreams.map(dream => (
-              <motion.div key={dream.id} variants={item}>
-                <Link href={`/dream/${dream.id}`} className="block glass-panel rounded-2xl p-5 hover:bg-card/60 transition-colors group">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-lg font-medium text-foreground group-hover:text-primary transition-colors line-clamp-1">{dream.title}</h3>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-4 flex items-center gap-1">
-                      <Calendar size={12} /> {format(new Date(dream.createdAt), 'MM/dd')}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{dream.content}</p>
-                  <div className="flex items-center gap-2">
-                    {dream.keywords?.slice(0, 3).map(kw => (
-                      <span key={kw} className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary/80 border border-primary/20">
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
-          </motion.div>
-        ) : (
-          <div className="text-center py-16 glass-panel rounded-3xl mt-4">
-            <Wind size={48} className="mx-auto text-muted-foreground/30 mb-4" />
-            <p className="text-muted-foreground">还没有记录过梦境</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">闭上眼，去星空里走走</p>
-          </div>
-        )}
+        <div className="grid grid-cols-2 gap-3 w-full">
+          <Link href="/new" className="glass-panel p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/5 transition-colors group" data-testid="action-new-dream">
+            <div className="bg-primary/20 p-3 rounded-full text-primary group-hover:scale-110 transition-transform">
+              <Moon size={20} />
+            </div>
+            <span className="text-sm font-medium">说一个梦</span>
+          </Link>
+          
+          <Link href="/chat" className="glass-panel p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/5 transition-colors group" data-testid="action-chat">
+            <div className="bg-secondary/20 p-3 rounded-full text-secondary group-hover:scale-110 transition-transform">
+              <MessageCircle size={20} />
+            </div>
+            <span className="text-sm font-medium">开始聊天</span>
+          </Link>
+          
+          <Link href="/dreams" className="glass-panel p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/5 transition-colors group" data-testid="action-dreams">
+            <div className="bg-blue-500/20 p-3 rounded-full text-blue-400 group-hover:scale-110 transition-transform">
+              <BookOpen size={20} />
+            </div>
+            <span className="text-sm font-medium">梦境记录</span>
+          </Link>
+          
+          <Link href="/characters" className="glass-panel p-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-white/5 transition-colors group" data-testid="action-characters">
+            <div className="bg-purple-500/20 p-3 rounded-full text-purple-400 group-hover:scale-110 transition-transform">
+              <Users size={20} />
+            </div>
+            <span className="text-sm font-medium">更换角色</span>
+          </Link>
+        </div>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -51,71 +52,71 @@
 
 :root {
   /* Set light mode variables to be dark mode since the app is always dark */
-  --background: 221 39% 6%;
-  --foreground: 220 30% 90%;
+  --background: 240 20% 5%;
+  --foreground: 220 20% 90%;
 
-  --border: 250 40% 20%;
-  --input: 250 40% 20%;
-  --ring: 250 80% 70%;
+  --border: 240 15% 15%;
+  --input: 240 15% 15%;
+  --ring: 255 90% 70%;
 
-  --card: 221 45% 8%;
-  --card-foreground: 220 30% 90%;
-  --card-border: 250 50% 20%;
+  --card: 240 15% 8%;
+  --card-foreground: 220 20% 90%;
+  --card-border: 240 15% 15%;
 
-  --popover: 221 45% 8%;
-  --popover-foreground: 220 30% 90%;
-  --popover-border: 250 50% 20%;
+  --popover: 240 15% 8%;
+  --popover-foreground: 220 20% 90%;
+  --popover-border: 240 15% 15%;
 
-  --primary: 250 80% 70%;
+  --primary: 255 90% 70%;
   --primary-foreground: 220 10% 10%;
 
-  --secondary: 45 90% 65%;
+  --secondary: 45 80% 65%;
   --secondary-foreground: 45 10% 10%;
 
-  --muted: 221 30% 15%;
-  --muted-foreground: 220 20% 55%;
+  --muted: 230 15% 20%;
+  --muted-foreground: 230 15% 50%;
 
-  --accent: 250 40% 25%;
-  --accent-foreground: 220 30% 90%;
+  --accent: 255 90% 15%;
+  --accent-foreground: 220 20% 90%;
 
-  --destructive: 0 84% 60%;
+  --destructive: 350 70% 55%;
   --destructive-foreground: 210 40% 98%;
 
   --app-font-sans: 'Inter', sans-serif;
-  --app-font-serif: Georgia, serif;
+  --app-font-serif: 'Noto Serif SC', serif;
   --app-font-mono: Menlo, monospace;
-  --radius: 0.75rem;
+  --radius: 1rem;
 }
 
 .dark {
-  --background: 221 39% 6%;
-  --foreground: 220 30% 90%;
+  --background: 240 20% 5%;
+  --foreground: 220 20% 90%;
 
-  --border: 250 40% 20%;
-  --input: 250 40% 20%;
-  --ring: 250 80% 70%;
+  --border: 240 15% 15%;
+  --input: 240 15% 15%;
+  --ring: 255 90% 70%;
 
-  --card: 221 45% 8%;
-  --card-foreground: 220 30% 90%;
-  --card-border: 250 50% 20%;
+  --card: 240 15% 8%;
+  --card-foreground: 220 20% 90%;
+  --card-border: 240 15% 15%;
 
-  --popover: 221 45% 8%;
-  --popover-foreground: 220 30% 90%;
-  --popover-border: 250 50% 20%;
+  --popover: 240 15% 8%;
+  --popover-foreground: 220 20% 90%;
+  --popover-border: 240 15% 15%;
 
-  --primary: 250 80% 70%;
+  --primary: 255 90% 70%;
   --primary-foreground: 220 10% 10%;
 
-  --secondary: 45 90% 65%;
+  --secondary: 45 80% 65%;
   --secondary-foreground: 45 10% 10%;
 
-  --muted: 221 30% 15%;
-  --muted-foreground: 220 20% 55%;
+  --muted: 230 15% 20%;
+  --muted-foreground: 230 15% 50%;
 
-  --accent: 250 40% 25%;
-  --accent-foreground: 220 30% 90%;
+  --accent: 255 90% 15%;
+  --accent-foreground: 220 20% 90%;
 
-  --destructive: 0 62.8% 30.6%;
+  --destructive: 350 70% 55%;
   --destructive-foreground: 210 40% 98%;
 }
 
@@ -130,5 +131,32 @@
 }
 
 .glass-panel {
-  @apply bg-card/40 backdrop-blur-xl border border-white/5 shadow-[0_4px_30px_rgba(0,0,0,0.1)];
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.starfield {
+  position: relative;
+  background: 
+    radial-gradient(ellipse at bottom, hsl(240 20% 15%), transparent 40%),
+    radial-gradient(ellipse at top right, hsl(255 90% 10%), transparent 40%);
+}
+
+.starfield::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  box-shadow: 
+    10px 20px 0 0 rgba(255,255,255,0.2),
+    50px 80px 0 0 rgba(255,255,255,0.1),
+    120px 40px 0 0 rgba(255,255,255,0.3),
+    200px 100px 0 0 rgba(255,255,255,0.15),
+    300px 150px 0 0 rgba(255,255,255,0.2),
+    350px 50px 0 0 rgba(255,255,255,0.3),
+    400px 200px 0 0 rgba(255,255,255,0.1),
+    150px 250px 0 0 rgba(255,255,255,0.2);
 }

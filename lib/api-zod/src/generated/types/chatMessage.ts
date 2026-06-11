@@ -3,11 +3,17 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import type { ChatMessageRole } from './chatMessageRole';
 
 export interface ChatMessage {
+  id: string;
   role: ChatMessageRole;
   content: string;
+  /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
+  dreamId?: string | null;
+  createdAt: string;
 }

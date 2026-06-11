@@ -5,11 +5,9 @@
  * 巡梦 Dream Journal API
  * OpenAPI spec version: 0.2.0
  */
+import type { AiChatHistoryItemRole } from './aiChatHistoryItemRole';
 
-export interface AiOrganizeInput {
+export interface AiChatHistoryItem {
+  role: AiChatHistoryItemRole;
   content: string;
-  /** @nullable */
-  title?: string | null;
-  /** @nullable */
-  characterSystemPrompt?: string | null;
 }

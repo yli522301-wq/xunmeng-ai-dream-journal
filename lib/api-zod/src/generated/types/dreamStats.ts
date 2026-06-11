@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import type { DreamStatsClarityBreakdown } from './dreamStatsClarityBreakdown';
 import type { DreamStatsMoodBreakdown } from './dreamStatsMoodBreakdown';
@@ -13,5 +13,5 @@ export interface DreamStats {
   moodBreakdown: DreamStatsMoodBreakdown;
   clarityBreakdown: DreamStatsClarityBreakdown;
   recurringCount: number;
-  recentKeywords: string[];
+  recentSymbols: string[];
 }

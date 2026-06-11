@@ -5,6 +5,9 @@ import DreamDetail from "./pages/dream-detail";
 import AiChat from "./pages/ai-chat";
 import ImageRecognition from "./pages/image-recognition";
 import Settings from "./pages/settings";
+import Characters from "./pages/characters";
+import CharacterNew from "./pages/character-new";
+import DreamsList from "./pages/dreams";
 import NotFound from "./pages/not-found";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,10 +23,13 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/new" component={NewDream} />
+        <Route path="/dreams" component={DreamsList} />
         <Route path="/dream/:id" component={DreamDetail} />
         <Route path="/chat" component={AiChat} />
         <Route path="/image" component={ImageRecognition} />
         <Route path="/settings" component={Settings} />
+        <Route path="/characters" component={Characters} />
+        <Route path="/characters/new" component={CharacterNew} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

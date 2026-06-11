@@ -1,0 +1,1 @@
+- [Drizzle push TTY issue](drizzle-tty.md) — drizzle-kit push/push-force fails without TTY; use executeSql for column renames and new tables

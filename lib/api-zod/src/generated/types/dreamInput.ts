@@ -3,28 +3,28 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import type { DreamInputClarity } from './dreamInputClarity';
 import type { DreamInputMood } from './dreamInputMood';
 
 export interface DreamInput {
-  /** @minLength 1 */
   title: string;
-  /** @minLength 1 */
   content: string;
   mood: DreamInputMood;
   clarity: DreamInputClarity;
   isRecurring: boolean;
   /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
   summary?: string | null;
-  keywords?: string[];
+  symbols?: string[];
   /** @nullable */
   emotionAnalysis?: string | null;
   /** @nullable */
   possibleConnection?: string | null;
   /** @nullable */
-  aiResponse?: string | null;
+  companionReply?: string | null;
   /** @nullable */
   imageUrl?: string | null;
 }

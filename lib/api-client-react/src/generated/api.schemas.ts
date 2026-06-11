@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 export interface HealthStatus {
   status: string;
@@ -11,6 +11,74 @@ export interface HealthStatus {
 
 export interface ErrorResponse {
   error: string;
+}
+
+export type CharacterLanguage = typeof CharacterLanguage[keyof typeof CharacterLanguage];
+
+
+export const CharacterLanguage = {
+  zh: 'zh',
+  en: 'en',
+} as const;
+
+export interface Character {
+  id: string;
+  name: string;
+  /** @nullable */
+  avatar?: string | null;
+  role: string;
+  personality: string[];
+  speakingStyle: string;
+  relationship: string;
+  language: CharacterLanguage;
+  voiceType: string;
+  systemPrompt: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export type CharacterInputLanguage = typeof CharacterInputLanguage[keyof typeof CharacterInputLanguage];
+
+
+export const CharacterInputLanguage = {
+  zh: 'zh',
+  en: 'en',
+} as const;
+
+export interface CharacterInput {
+  name: string;
+  /** @nullable */
+  avatar?: string | null;
+  role: string;
+  personality: string[];
+  speakingStyle: string;
+  relationship: string;
+  language: CharacterInputLanguage;
+  voiceType: string;
+  systemPrompt: string;
+  isActive?: boolean;
+}
+
+export type CharacterUpdateLanguage = typeof CharacterUpdateLanguage[keyof typeof CharacterUpdateLanguage];
+
+
+export const CharacterUpdateLanguage = {
+  zh: 'zh',
+  en: 'en',
+} as const;
+
+export interface CharacterUpdate {
+  name?: string;
+  /** @nullable */
+  avatar?: string | null;
+  role?: string;
+  personality?: string[];
+  speakingStyle?: string;
+  relationship?: string;
+  language?: CharacterUpdateLanguage;
+  voiceType?: string;
+  systemPrompt?: string;
+  isActive?: boolean;
 }
 
 export type DreamMood = typeof DreamMood[keyof typeof DreamMood];
@@ -44,14 +112,16 @@ export interface Dream {
   isRecurring: boolean;
   createdAt: string;
   /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
   summary?: string | null;
-  keywords?: string[];
+  symbols?: string[];
   /** @nullable */
   emotionAnalysis?: string | null;
   /** @nullable */
   possibleConnection?: string | null;
   /** @nullable */
-  aiResponse?: string | null;
+  companionReply?: string | null;
   /** @nullable */
   imageUrl?: string | null;
 }
@@ -79,22 +149,22 @@ export const DreamInputClarity = {
 } as const;
 
 export interface DreamInput {
-  /** @minLength 1 */
   title: string;
-  /** @minLength 1 */
   content: string;
   mood: DreamInputMood;
   clarity: DreamInputClarity;
   isRecurring: boolean;
   /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
   summary?: string | null;
-  keywords?: string[];
+  symbols?: string[];
   /** @nullable */
   emotionAnalysis?: string | null;
   /** @nullable */
   possibleConnection?: string | null;
   /** @nullable */
-  aiResponse?: string | null;
+  companionReply?: string | null;
   /** @nullable */
   imageUrl?: string | null;
 }
@@ -122,21 +192,22 @@ export const DreamUpdateClarity = {
 } as const;
 
 export interface DreamUpdate {
-  /** @minLength 1 */
   title?: string;
   content?: string;
   mood?: DreamUpdateMood;
   clarity?: DreamUpdateClarity;
   isRecurring?: boolean;
   /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
   summary?: string | null;
-  keywords?: string[];
+  symbols?: string[];
   /** @nullable */
   emotionAnalysis?: string | null;
   /** @nullable */
   possibleConnection?: string | null;
   /** @nullable */
-  aiResponse?: string | null;
+  companionReply?: string | null;
   /** @nullable */
   imageUrl?: string | null;
 }
@@ -150,22 +221,7 @@ export interface DreamStats {
   moodBreakdown: DreamStatsMoodBreakdown;
   clarityBreakdown: DreamStatsClarityBreakdown;
   recurringCount: number;
-  recentKeywords: string[];
-}
-
-export interface AiOrganizeInput {
-  content: string;
-  /** @nullable */
-  title?: string | null;
-}
-
-export interface AiOrganizeResult {
-  summary: string;
-  keywords: string[];
-  emotionAnalysis: string;
-  possibleConnection: string;
-  aiResponse: string;
-  isMock: boolean;
+  recentSymbols: string[];
 }
 
 export type ChatMessageRole = typeof ChatMessageRole[keyof typeof ChatMessageRole];
@@ -177,15 +233,53 @@ export const ChatMessageRole = {
 } as const;
 
 export interface ChatMessage {
+  id: string;
   role: ChatMessageRole;
+  content: string;
+  /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
+  dreamId?: string | null;
+  createdAt: string;
+}
+
+export interface AiOrganizeInput {
+  content: string;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  characterSystemPrompt?: string | null;
+}
+
+export interface AiOrganizeResult {
+  summary: string;
+  symbols: string[];
+  emotionAnalysis: string;
+  possibleConnection: string;
+  companionReply: string;
+  isMock: boolean;
+}
+
+export type AiChatHistoryItemRole = typeof AiChatHistoryItemRole[keyof typeof AiChatHistoryItemRole];
+
+
+export const AiChatHistoryItemRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface AiChatHistoryItem {
+  role: AiChatHistoryItemRole;
   content: string;
 }
 
 export interface AiChatInput {
   message: string;
   /** @nullable */
+  characterSystemPrompt?: string | null;
+  /** @nullable */
   dreamContext?: string | null;
-  history: ChatMessage[];
+  history: AiChatHistoryItem[];
 }
 
 export interface AiChatResult {
@@ -220,4 +314,14 @@ export interface AiSettings {
   hasApiKey: boolean;
   modelName: string;
 }
+
+export type GetChatHistoryParams = {
+characterId?: string;
+dreamId?: string;
+limit?: number;
+};
+
+export type ClearChatHistoryParams = {
+characterId?: string;
+};
 

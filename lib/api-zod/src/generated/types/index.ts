@@ -3,9 +3,11 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 
+export * from './aiChatHistoryItem';
+export * from './aiChatHistoryItemRole';
 export * from './aiChatInput';
 export * from './aiChatResult';
 export * from './aiImageInput';
@@ -14,8 +16,15 @@ export * from './aiOrganizeInput';
 export * from './aiOrganizeResult';
 export * from './aiSettings';
 export * from './aiSettingsMode';
+export * from './character';
+export * from './characterInput';
+export * from './characterInputLanguage';
+export * from './characterLanguage';
+export * from './characterUpdate';
+export * from './characterUpdateLanguage';
 export * from './chatMessage';
 export * from './chatMessageRole';
+export * from './clearChatHistoryParams';
 export * from './dream';
 export * from './dreamClarity';
 export * from './dreamInput';
@@ -29,4 +38,5 @@ export * from './dreamUpdate';
 export * from './dreamUpdateClarity';
 export * from './dreamUpdateMood';
 export * from './errorResponse';
+export * from './getChatHistoryParams';
 export * from './healthStatus';

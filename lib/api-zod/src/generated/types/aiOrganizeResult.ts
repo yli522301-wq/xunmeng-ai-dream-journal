@@ -3,14 +3,14 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 
 export interface AiOrganizeResult {
   summary: string;
-  keywords: string[];
+  symbols: string[];
   emotionAnalysis: string;
   possibleConnection: string;
-  aiResponse: string;
+  companionReply: string;
   isMock: boolean;
 }

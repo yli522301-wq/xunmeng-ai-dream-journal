@@ -3,17 +3,162 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import * as zod from 'zod';
 
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
+})
+
+
+/**
+ * @summary List all character profiles
+ */
+export const ListCharactersResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+export const ListCharactersResponse = zod.array(ListCharactersResponseItem)
+
+
+/**
+ * @summary Create a new character profile
+ */
+export const CreateCharacterBody = zod.object({
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Get the currently active character
+ */
+export const GetActiveCharacterResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Get a character by ID
+ */
+export const GetCharacterParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetCharacterResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update a character profile
+ */
+export const UpdateCharacterParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const UpdateCharacterBody = zod.object({
+  "name": zod.string().optional(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string().optional(),
+  "personality": zod.array(zod.string()).optional(),
+  "speakingStyle": zod.string().optional(),
+  "relationship": zod.string().optional(),
+  "language": zod.enum(['zh', 'en']).optional(),
+  "voiceType": zod.string().optional(),
+  "systemPrompt": zod.string().optional(),
+  "isActive": zod.boolean().optional()
+})
+
+export const UpdateCharacterResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a character profile
+ */
+export const DeleteCharacterParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+/**
+ * @summary Set a character as the active companion
+ */
+export const ActivateCharacterParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ActivateCharacterResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "avatar": zod.string().nullish(),
+  "role": zod.string(),
+  "personality": zod.array(zod.string()),
+  "speakingStyle": zod.string(),
+  "relationship": zod.string(),
+  "language": zod.enum(['zh', 'en']),
+  "voiceType": zod.string(),
+  "systemPrompt": zod.string(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
 })
 
 
@@ -28,11 +173,12 @@ export const ListDreamsResponseItem = zod.object({
   "clarity": zod.enum(['vague', 'moderate', 'vivid']),
   "isRecurring": zod.boolean(),
   "createdAt": zod.string(),
+  "characterId": zod.string().nullish(),
   "summary": zod.string().nullish(),
-  "keywords": zod.array(zod.string()).optional(),
+  "symbols": zod.array(zod.string()).optional(),
   "emotionAnalysis": zod.string().nullish(),
   "possibleConnection": zod.string().nullish(),
-  "aiResponse": zod.string().nullish(),
+  "companionReply": zod.string().nullish(),
   "imageUrl": zod.string().nullish()
 })
 export const ListDreamsResponse = zod.array(ListDreamsResponseItem)
@@ -41,22 +187,31 @@ export const ListDreamsResponse = zod.array(ListDreamsResponseItem)
 /**
  * @summary Create a new dream record
  */
-
-
-
-
 export const CreateDreamBody = zod.object({
-  "title": zod.string().min(1),
-  "content": zod.string().min(1),
+  "title": zod.string(),
+  "content": zod.string(),
   "mood": zod.enum(['calm', 'anxious', 'happy', 'fearful', 'confused', 'nostalgic', 'strange']),
   "clarity": zod.enum(['vague', 'moderate', 'vivid']),
   "isRecurring": zod.boolean(),
+  "characterId": zod.string().nullish(),
   "summary": zod.string().nullish(),
-  "keywords": zod.array(zod.string()).optional(),
+  "symbols": zod.array(zod.string()).optional(),
   "emotionAnalysis": zod.string().nullish(),
   "possibleConnection": zod.string().nullish(),
-  "aiResponse": zod.string().nullish(),
+  "companionReply": zod.string().nullish(),
   "imageUrl": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get dream statistics summary
+ */
+export const GetDreamStatsResponse = zod.object({
+  "total": zod.number(),
+  "moodBreakdown": zod.record(zod.string(), zod.number()),
+  "clarityBreakdown": zod.record(zod.string(), zod.number()),
+  "recurringCount": zod.number(),
+  "recentSymbols": zod.array(zod.string())
 })
 
 
@@ -75,11 +230,12 @@ export const GetDreamResponse = zod.object({
   "clarity": zod.enum(['vague', 'moderate', 'vivid']),
   "isRecurring": zod.boolean(),
   "createdAt": zod.string(),
+  "characterId": zod.string().nullish(),
   "summary": zod.string().nullish(),
-  "keywords": zod.array(zod.string()).optional(),
+  "symbols": zod.array(zod.string()).optional(),
   "emotionAnalysis": zod.string().nullish(),
   "possibleConnection": zod.string().nullish(),
-  "aiResponse": zod.string().nullish(),
+  "companionReply": zod.string().nullish(),
   "imageUrl": zod.string().nullish()
 })
 
@@ -91,20 +247,18 @@ export const UpdateDreamParams = zod.object({
   "id": zod.coerce.string()
 })
 
-
-
-
 export const UpdateDreamBody = zod.object({
-  "title": zod.string().min(1).optional(),
+  "title": zod.string().optional(),
   "content": zod.string().optional(),
   "mood": zod.enum(['calm', 'anxious', 'happy', 'fearful', 'confused', 'nostalgic', 'strange']).optional(),
   "clarity": zod.enum(['vague', 'moderate', 'vivid']).optional(),
   "isRecurring": zod.boolean().optional(),
+  "characterId": zod.string().nullish(),
   "summary": zod.string().nullish(),
-  "keywords": zod.array(zod.string()).optional(),
+  "symbols": zod.array(zod.string()).optional(),
   "emotionAnalysis": zod.string().nullish(),
   "possibleConnection": zod.string().nullish(),
-  "aiResponse": zod.string().nullish(),
+  "companionReply": zod.string().nullish(),
   "imageUrl": zod.string().nullish()
 })
 
@@ -116,11 +270,12 @@ export const UpdateDreamResponse = zod.object({
   "clarity": zod.enum(['vague', 'moderate', 'vivid']),
   "isRecurring": zod.boolean(),
   "createdAt": zod.string(),
+  "characterId": zod.string().nullish(),
   "summary": zod.string().nullish(),
-  "keywords": zod.array(zod.string()).optional(),
+  "symbols": zod.array(zod.string()).optional(),
   "emotionAnalysis": zod.string().nullish(),
   "possibleConnection": zod.string().nullish(),
-  "aiResponse": zod.string().nullish(),
+  "companionReply": zod.string().nullish(),
   "imageUrl": zod.string().nullish()
 })
 
@@ -134,14 +289,30 @@ export const DeleteDreamParams = zod.object({
 
 
 /**
- * @summary Get dream statistics summary
+ * @summary Get chat message history
  */
-export const GetDreamStatsResponse = zod.object({
-  "total": zod.number(),
-  "moodBreakdown": zod.record(zod.string(), zod.number()),
-  "clarityBreakdown": zod.record(zod.string(), zod.number()),
-  "recurringCount": zod.number(),
-  "recentKeywords": zod.array(zod.string())
+export const GetChatHistoryQueryParams = zod.object({
+  "characterId": zod.coerce.string().optional(),
+  "dreamId": zod.coerce.string().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetChatHistoryResponseItem = zod.object({
+  "id": zod.string(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "characterId": zod.string().nullish(),
+  "dreamId": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const GetChatHistoryResponse = zod.array(GetChatHistoryResponseItem)
+
+
+/**
+ * @summary Clear chat history for a character
+ */
+export const ClearChatHistoryQueryParams = zod.object({
+  "characterId": zod.coerce.string().optional()
 })
 
 
@@ -150,24 +321,26 @@ export const GetDreamStatsResponse = zod.object({
  */
 export const AiOrganizeDreamBody = zod.object({
   "content": zod.string(),
-  "title": zod.string().nullish()
+  "title": zod.string().nullish(),
+  "characterSystemPrompt": zod.string().nullish()
 })
 
 export const AiOrganizeDreamResponse = zod.object({
   "summary": zod.string(),
-  "keywords": zod.array(zod.string()),
+  "symbols": zod.array(zod.string()),
   "emotionAnalysis": zod.string(),
   "possibleConnection": zod.string(),
-  "aiResponse": zod.string(),
+  "companionReply": zod.string(),
   "isMock": zod.boolean()
 })
 
 
 /**
- * @summary Send a message to the AI dream observer
+ * @summary Send a message to the AI companion
  */
 export const AiChatBody = zod.object({
   "message": zod.string(),
+  "characterSystemPrompt": zod.string().nullish(),
   "dreamContext": zod.string().nullish(),
   "history": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),

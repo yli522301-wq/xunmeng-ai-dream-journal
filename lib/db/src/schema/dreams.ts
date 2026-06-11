@@ -10,11 +10,12 @@ export const dreamsTable = pgTable("dreams", {
   clarity: text("clarity").notNull(),
   isRecurring: boolean("is_recurring").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  characterId: uuid("character_id"),
   summary: text("summary"),
-  keywords: text("keywords").array(),
+  symbols: text("symbols").array(),
   emotionAnalysis: text("emotion_analysis"),
   possibleConnection: text("possible_connection"),
-  aiResponse: text("ai_response"),
+  companionReply: text("companion_reply"),
   imageUrl: text("image_url"),
 });
 

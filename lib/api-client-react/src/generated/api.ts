@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import {
   useMutation,
@@ -27,11 +27,17 @@ import type {
   AiOrganizeInput,
   AiOrganizeResult,
   AiSettings,
+  Character,
+  CharacterInput,
+  CharacterUpdate,
+  ChatMessage,
+  ClearChatHistoryParams,
   Dream,
   DreamInput,
   DreamStats,
   DreamUpdate,
   ErrorResponse,
+  GetChatHistoryParams,
   HealthStatus
 } from './api.schemas';
 
@@ -56,7 +62,6 @@ export const getHealthCheckUrl = () => {
 }
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const healthCheck = async ( options?: RequestInit): Promise<HealthStatus> => {
@@ -124,6 +129,520 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getListCharactersUrl = () => {
+
+
+
+
+  return `/api/characters`
+}
+
+/**
+ * @summary List all character profiles
+ */
+export const listCharacters = async ( options?: RequestInit): Promise<Character[]> => {
+
+  return customFetch<Character[]>(getListCharactersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCharactersQueryKey = () => {
+    return [
+    `/api/characters`
+    ] as const;
+    }
+
+
+export const getListCharactersQueryOptions = <TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCharactersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCharacters>>> = ({ signal }) => listCharacters({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCharactersQueryResult = NonNullable<Awaited<ReturnType<typeof listCharacters>>>
+export type ListCharactersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all character profiles
+ */
+
+export function useListCharacters<TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCharactersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateCharacterUrl = () => {
+
+
+
+
+  return `/api/characters`
+}
+
+/**
+ * @summary Create a new character profile
+ */
+export const createCharacter = async (characterInput: CharacterInput, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getCreateCharacterUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      characterInput,)
+  }
+);}
+
+
+
+
+export const getCreateCharacterMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CharacterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CharacterInput>}, TContext> => {
+
+const mutationKey = ['createCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCharacter>>, {data: BodyType<CharacterInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createCharacter(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof createCharacter>>>
+    export type CreateCharacterMutationBody = BodyType<CharacterInput>
+    export type CreateCharacterMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a new character profile
+ */
+export const useCreateCharacter = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CharacterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCharacter>>,
+        TError,
+        {data: BodyType<CharacterInput>},
+        TContext
+      > => {
+      return useMutation(getCreateCharacterMutationOptions(options));
+    }
+
+export const getGetActiveCharacterUrl = () => {
+
+
+
+
+  return `/api/characters/active`
+}
+
+/**
+ * @summary Get the currently active character
+ */
+export const getActiveCharacter = async ( options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getGetActiveCharacterUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetActiveCharacterQueryKey = () => {
+    return [
+    `/api/characters/active`
+    ] as const;
+    }
+
+
+export const getGetActiveCharacterQueryOptions = <TData = Awaited<ReturnType<typeof getActiveCharacter>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveCharacter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetActiveCharacterQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveCharacter>>> = ({ signal }) => getActiveCharacter({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActiveCharacter>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetActiveCharacterQueryResult = NonNullable<Awaited<ReturnType<typeof getActiveCharacter>>>
+export type GetActiveCharacterQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get the currently active character
+ */
+
+export function useGetActiveCharacter<TData = Awaited<ReturnType<typeof getActiveCharacter>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveCharacter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetActiveCharacterQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetCharacterUrl = (id: string,) => {
+
+
+
+
+  return `/api/characters/${id}`
+}
+
+/**
+ * @summary Get a character by ID
+ */
+export const getCharacter = async (id: string, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getGetCharacterUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCharacterQueryKey = (id: string,) => {
+    return [
+    `/api/characters/${id}`
+    ] as const;
+    }
+
+
+export const getGetCharacterQueryOptions = <TData = Awaited<ReturnType<typeof getCharacter>>, TError = ErrorType<ErrorResponse>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCharacter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCharacterQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCharacter>>> = ({ signal }) => getCharacter(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCharacter>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCharacterQueryResult = NonNullable<Awaited<ReturnType<typeof getCharacter>>>
+export type GetCharacterQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get a character by ID
+ */
+
+export function useGetCharacter<TData = Awaited<ReturnType<typeof getCharacter>>, TError = ErrorType<ErrorResponse>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCharacter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCharacterQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateCharacterUrl = (id: string,) => {
+
+
+
+
+  return `/api/characters/${id}`
+}
+
+/**
+ * @summary Update a character profile
+ */
+export const updateCharacter = async (id: string,
+    characterUpdate: CharacterUpdate, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getUpdateCharacterUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      characterUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateCharacterMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCharacter>>, TError,{id: string;data: BodyType<CharacterUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCharacter>>, TError,{id: string;data: BodyType<CharacterUpdate>}, TContext> => {
+
+const mutationKey = ['updateCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCharacter>>, {id: string;data: BodyType<CharacterUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateCharacter(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof updateCharacter>>>
+    export type UpdateCharacterMutationBody = BodyType<CharacterUpdate>
+    export type UpdateCharacterMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Update a character profile
+ */
+export const useUpdateCharacter = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCharacter>>, TError,{id: string;data: BodyType<CharacterUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCharacter>>,
+        TError,
+        {id: string;data: BodyType<CharacterUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateCharacterMutationOptions(options));
+    }
+
+export const getDeleteCharacterUrl = (id: string,) => {
+
+
+
+
+  return `/api/characters/${id}`
+}
+
+/**
+ * @summary Delete a character profile
+ */
+export const deleteCharacter = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCharacterUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCharacterMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCharacter>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteCharacter(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCharacter>>>
+
+    export type DeleteCharacterMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a character profile
+ */
+export const useDeleteCharacter = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCharacter>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteCharacterMutationOptions(options));
+    }
+
+export const getActivateCharacterUrl = (id: string,) => {
+
+
+
+
+  return `/api/characters/${id}/activate`
+}
+
+/**
+ * @summary Set a character as the active companion
+ */
+export const activateCharacter = async (id: string, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getActivateCharacterUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getActivateCharacterMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateCharacter>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateCharacter>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['activateCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateCharacter>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  activateCharacter(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof activateCharacter>>>
+
+    export type ActivateCharacterMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Set a character as the active companion
+ */
+export const useActivateCharacter = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateCharacter>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof activateCharacter>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getActivateCharacterMutationOptions(options));
+    }
 
 export const getListDreamsUrl = () => {
 
@@ -272,6 +791,83 @@ export const useCreateDream = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateDreamMutationOptions(options));
     }
+
+export const getGetDreamStatsUrl = () => {
+
+
+
+
+  return `/api/dreams/stats/summary`
+}
+
+/**
+ * @summary Get dream statistics summary
+ */
+export const getDreamStats = async ( options?: RequestInit): Promise<DreamStats> => {
+
+  return customFetch<DreamStats>(getGetDreamStatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDreamStatsQueryKey = () => {
+    return [
+    `/api/dreams/stats/summary`
+    ] as const;
+    }
+
+
+export const getGetDreamStatsQueryOptions = <TData = Awaited<ReturnType<typeof getDreamStats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDreamStatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDreamStats>>> = ({ signal }) => getDreamStats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDreamStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getDreamStats>>>
+export type GetDreamStatsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get dream statistics summary
+ */
+
+export function useGetDreamStats<TData = Awaited<ReturnType<typeof getDreamStats>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDreamStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetDreamUrl = (id: string,) => {
 
@@ -492,20 +1088,27 @@ export const useDeleteDream = <TError = ErrorType<unknown>,
       return useMutation(getDeleteDreamMutationOptions(options));
     }
 
-export const getGetDreamStatsUrl = () => {
+export const getGetChatHistoryUrl = (params?: GetChatHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/dreams/stats/summary`
+  return stringifiedParams.length > 0 ? `/api/chat/history?${stringifiedParams}` : `/api/chat/history`
 }
 
 /**
- * @summary Get dream statistics summary
+ * @summary Get chat message history
  */
-export const getDreamStats = async ( options?: RequestInit): Promise<DreamStats> => {
+export const getChatHistory = async (params?: GetChatHistoryParams, options?: RequestInit): Promise<ChatMessage[]> => {
 
-  return customFetch<DreamStats>(getGetDreamStatsUrl(),
+  return customFetch<ChatMessage[]>(getGetChatHistoryUrl(params),
   {
     ...options,
     method: 'GET'
@@ -518,45 +1121,45 @@ export const getDreamStats = async ( options?: RequestInit): Promise<DreamStats>
 
 
 
-export const getGetDreamStatsQueryKey = () => {
+export const getGetChatHistoryQueryKey = (params?: GetChatHistoryParams,) => {
     return [
-    `/api/dreams/stats/summary`
+    `/api/chat/history`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetDreamStatsQueryOptions = <TData = Awaited<ReturnType<typeof getDreamStats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetChatHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getChatHistory>>, TError = ErrorType<unknown>>(params?: GetChatHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetDreamStatsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetChatHistoryQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDreamStats>>> = ({ signal }) => getDreamStats({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChatHistory>>> = ({ signal }) => getChatHistory(params, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChatHistory>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetDreamStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getDreamStats>>>
-export type GetDreamStatsQueryError = ErrorType<unknown>
+export type GetChatHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getChatHistory>>>
+export type GetChatHistoryQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Get dream statistics summary
+ * @summary Get chat message history
  */
 
-export function useGetDreamStats<TData = Awaited<ReturnType<typeof getDreamStats>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDreamStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetChatHistory<TData = Awaited<ReturnType<typeof getChatHistory>>, TError = ErrorType<unknown>>(
+ params?: GetChatHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetDreamStatsQueryOptions(options)
+  const queryOptions = getGetChatHistoryQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -568,6 +1171,83 @@ export function useGetDreamStats<TData = Awaited<ReturnType<typeof getDreamStats
 
 
 
+
+export const getClearChatHistoryUrl = (params?: ClearChatHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/chat/clear?${stringifiedParams}` : `/api/chat/clear`
+}
+
+/**
+ * @summary Clear chat history for a character
+ */
+export const clearChatHistory = async (params?: ClearChatHistoryParams, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getClearChatHistoryUrl(params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getClearChatHistoryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatHistory>>, TError,{params?: ClearChatHistoryParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearChatHistory>>, TError,{params?: ClearChatHistoryParams}, TContext> => {
+
+const mutationKey = ['clearChatHistory'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearChatHistory>>, {params?: ClearChatHistoryParams}> = (props) => {
+          const {params} = props ?? {};
+
+          return  clearChatHistory(params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearChatHistoryMutationResult = NonNullable<Awaited<ReturnType<typeof clearChatHistory>>>
+
+    export type ClearChatHistoryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear chat history for a character
+ */
+export const useClearChatHistory = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatHistory>>, TError,{params?: ClearChatHistoryParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearChatHistory>>,
+        TError,
+        {params?: ClearChatHistoryParams},
+        TContext
+      > => {
+      return useMutation(getClearChatHistoryMutationOptions(options));
+    }
 
 export const getAiOrganizeDreamUrl = () => {
 
@@ -649,7 +1329,7 @@ export const getAiChatUrl = () => {
 }
 
 /**
- * @summary Send a message to the AI dream observer
+ * @summary Send a message to the AI companion
  */
 export const aiChat = async (aiChatInput: AiChatInput, options?: RequestInit): Promise<AiChatResult> => {
 
@@ -698,7 +1378,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiChatMutationError = ErrorType<unknown>
 
     /**
- * @summary Send a message to the AI dream observer
+ * @summary Send a message to the AI companion
  */
 export const useAiChat = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiChat>>, TError,{data: BodyType<AiChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

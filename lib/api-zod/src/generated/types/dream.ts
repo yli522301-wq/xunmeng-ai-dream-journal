@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import type { DreamClarity } from './dreamClarity';
 import type { DreamMood } from './dreamMood';
@@ -17,14 +17,16 @@ export interface Dream {
   isRecurring: boolean;
   createdAt: string;
   /** @nullable */
+  characterId?: string | null;
+  /** @nullable */
   summary?: string | null;
-  keywords?: string[];
+  symbols?: string[];
   /** @nullable */
   emotionAnalysis?: string | null;
   /** @nullable */
   possibleConnection?: string | null;
   /** @nullable */
-  aiResponse?: string | null;
+  companionReply?: string | null;
   /** @nullable */
   imageUrl?: string | null;
 }

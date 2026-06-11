@@ -3,13 +3,15 @@
  * Do not edit manually.
  * Api
  * 巡梦 Dream Journal API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
-import type { ChatMessage } from './chatMessage';
+import type { AiChatHistoryItem } from './aiChatHistoryItem';
 
 export interface AiChatInput {
   message: string;
   /** @nullable */
+  characterSystemPrompt?: string | null;
+  /** @nullable */
   dreamContext?: string | null;
-  history: ChatMessage[];
+  history: AiChatHistoryItem[];
 }

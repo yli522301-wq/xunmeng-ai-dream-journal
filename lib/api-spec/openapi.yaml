@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
+  version: 0.2.0
   description: 巡梦 Dream Journal API
 servers:
   - url: /api
@@ -10,8 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: characters
+    description: AI character profile operations
   - name: dreams
     description: Dream record operations
+  - name: chat
+    description: Chat message operations
   - name: ai
     description: AI operations
 paths:
@@ -20,7 +24,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -28,6 +31,149 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /characters:
+    get:
+      operationId: listCharacters
+      tags: [characters]
+      summary: List all character profiles
+      responses:
+        "200":
+          description: List of characters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Character"
+    post:
+      operationId: createCharacter
+      tags: [characters]
+      summary: Create a new character profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterInput"
+      responses:
+        "201":
+          description: Created character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+
+  /characters/active:
+    get:
+      operationId: getActiveCharacter
+      tags: [characters]
+      summary: Get the currently active character
+      responses:
+        "200":
+          description: Active character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "404":
+          description: No active character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /characters/{id}:
+    get:
+      operationId: getCharacter
+      tags: [characters]
+      summary: Get a character by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCharacter
+      tags: [characters]
+      summary: Update a character profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterUpdate"
+      responses:
+        "200":
+          description: Updated character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteCharacter
+      tags: [characters]
+      summary: Delete a character profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /characters/{id}/activate:
+    post:
+      operationId: activateCharacter
+      tags: [characters]
+      summary: Set a character as the active companion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Activated character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /dreams:
     get:
@@ -60,6 +206,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Dream"
+
+  /dreams/stats/summary:
+    get:
+      operationId: getDreamStats
+      tags: [dreams]
+      summary: Get dream statistics summary
+      responses:
+        "200":
+          description: Dream statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DreamStats"
 
   /dreams/{id}:
     get:
@@ -128,18 +287,51 @@ paths:
         "204":
           description: Deleted
 
-  /dreams/stats/summary:
+  /chat/history:
     get:
-      operationId: getDreamStats
-      tags: [dreams]
-      summary: Get dream statistics summary
+      operationId: getChatHistory
+      tags: [chat]
+      summary: Get chat message history
+      parameters:
+        - name: characterId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dreamId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
-          description: Dream statistics
+          description: Chat history
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DreamStats"
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+
+  /chat/clear:
+    delete:
+      operationId: clearChatHistory
+      tags: [chat]
+      summary: Clear chat history for a character
+      parameters:
+        - name: characterId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Cleared
 
   /ai/organize:
     post:
@@ -164,7 +356,7 @@ paths:
     post:
       operationId: aiChat
       tags: [ai]
-      summary: Send a message to the AI dream observer
+      summary: Send a message to the AI companion
       requestBody:
         required: true
         content:
@@ -229,6 +421,112 @@ components:
       required:
         - error
 
+    Character:
+      type: object
+      required:
+        - id
+        - name
+        - role
+        - personality
+        - speakingStyle
+        - relationship
+        - language
+        - voiceType
+        - systemPrompt
+        - isActive
+        - createdAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        role:
+          type: string
+        personality:
+          type: array
+          items:
+            type: string
+        speakingStyle:
+          type: string
+        relationship:
+          type: string
+        language:
+          type: string
+          enum: [zh, en]
+        voiceType:
+          type: string
+        systemPrompt:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+
+    CharacterInput:
+      type: object
+      required:
+        - name
+        - role
+        - personality
+        - speakingStyle
+        - relationship
+        - language
+        - voiceType
+        - systemPrompt
+      properties:
+        name:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        role:
+          type: string
+        personality:
+          type: array
+          items:
+            type: string
+        speakingStyle:
+          type: string
+        relationship:
+          type: string
+        language:
+          type: string
+          enum: [zh, en]
+        voiceType:
+          type: string
+        systemPrompt:
+          type: string
+        isActive:
+          type: boolean
+
+    CharacterUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        role:
+          type: string
+        personality:
+          type: array
+          items:
+            type: string
+        speakingStyle:
+          type: string
+        relationship:
+          type: string
+        language:
+          type: string
+          enum: [zh, en]
+        voiceType:
+          type: string
+        systemPrompt:
+          type: string
+        isActive:
+          type: boolean
+
     Dream:
       type: object
       required:
@@ -256,9 +554,11 @@ components:
           type: boolean
         createdAt:
           type: string
+        characterId:
+          type: ["string", "null"]
         summary:
           type: ["string", "null"]
-        keywords:
+        symbols:
           type: array
           items:
             type: string
@@ -266,7 +566,7 @@ components:
           type: ["string", "null"]
         possibleConnection:
           type: ["string", "null"]
-        aiResponse:
+        companionReply:
           type: ["string", "null"]
         imageUrl:
           type: ["string", "null"]
@@ -282,10 +582,8 @@ components:
       properties:
         title:
           type: string
-          minLength: 1
         content:
           type: string
-          minLength: 1
         mood:
           type: string
           enum: [calm, anxious, happy, fearful, confused, nostalgic, strange]
@@ -294,9 +592,11 @@ components:
           enum: [vague, moderate, vivid]
         isRecurring:
           type: boolean
+        characterId:
+          type: ["string", "null"]
         summary:
           type: ["string", "null"]
-        keywords:
+        symbols:
           type: array
           items:
             type: string
@@ -304,7 +604,7 @@ components:
           type: ["string", "null"]
         possibleConnection:
           type: ["string", "null"]
-        aiResponse:
+        companionReply:
           type: ["string", "null"]
         imageUrl:
           type: ["string", "null"]
@@ -314,7 +614,6 @@ components:
       properties:
         title:
           type: string
-          minLength: 1
         content:
           type: string
         mood:
@@ -325,9 +624,11 @@ components:
           enum: [vague, moderate, vivid]
         isRecurring:
           type: boolean
+        characterId:
+          type: ["string", "null"]
         summary:
           type: ["string", "null"]
-        keywords:
+        symbols:
           type: array
           items:
             type: string
@@ -335,7 +636,7 @@ components:
           type: ["string", "null"]
         possibleConnection:
           type: ["string", "null"]
-        aiResponse:
+        companionReply:
           type: ["string", "null"]
         imageUrl:
           type: ["string", "null"]
@@ -347,7 +648,7 @@ components:
         - moodBreakdown
         - clarityBreakdown
         - recurringCount
-        - recentKeywords
+        - recentSymbols
       properties:
         total:
           type: integer
@@ -361,10 +662,32 @@ components:
             type: integer
         recurringCount:
           type: integer
-        recentKeywords:
+        recentSymbols:
           type: array
           items:
             type: string
+
+    ChatMessage:
+      type: object
+      required:
+        - id
+        - role
+        - content
+        - createdAt
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        characterId:
+          type: ["string", "null"]
+        dreamId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
 
     AiOrganizeInput:
       type: object
@@ -375,20 +698,22 @@ components:
           type: string
         title:
           type: ["string", "null"]
+        characterSystemPrompt:
+          type: ["string", "null"]
 
     AiOrganizeResult:
       type: object
       required:
         - summary
-        - keywords
+        - symbols
         - emotionAnalysis
         - possibleConnection
-        - aiResponse
+        - companionReply
         - isMock
       properties:
         summary:
           type: string
-        keywords:
+        symbols:
           type: array
           items:
             type: string
@@ -396,7 +721,7 @@ components:
           type: string
         possibleConnection:
           type: string
-        aiResponse:
+        companionReply:
           type: string
         isMock:
           type: boolean
@@ -409,14 +734,16 @@ components:
       properties:
         message:
           type: string
+        characterSystemPrompt:
+          type: ["string", "null"]
         dreamContext:
           type: ["string", "null"]
         history:
           type: array
           items:
-            $ref: "#/components/schemas/ChatMessage"
+            $ref: "#/components/schemas/AiChatHistoryItem"
 
-    ChatMessage:
+    AiChatHistoryItem:
       type: object
       required:
         - role
