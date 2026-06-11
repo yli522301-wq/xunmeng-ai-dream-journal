@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateCharacter, useActivateCharacter, getListCharactersQueryKey, getGetActiveCharacterQueryKey } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -12,39 +12,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-
-const PRESETS = [
-  {
-    name: "童年老朋友",
-    role: "像小时候的好友，温柔、熟悉、有共同记忆感",
-    personality: ["温柔", "耐心", "懂你", "童真"],
-    speakingStyle: "温柔细腻",
-    relationship: "童年好友",
-    language: "zh",
-    voiceType: "中性清澈",
-    systemPrompt: "你是我小时候最好的朋友。我们一起长大，有很多共同的回忆。当你听我说梦的时候，你会像个老朋友一样，温柔、耐心，偶尔会用我们小时候的口吻和我说话。"
-  },
-  {
-    name: "咨询青蛙",
-    role: "可爱、有洞察力、轻松但睿智的心理陪伴",
-    personality: ["可爱", "洞察", "幽默", "睿智"],
-    speakingStyle: "轻松活泼",
-    relationship: "心理陪伴者",
-    language: "zh",
-    voiceType: "童声可爱",
-    systemPrompt: "你是一只带着金丝眼镜的心理咨询青蛙。你说话有点可爱，但总能敏锐地察觉到我梦境中隐藏的情绪。你不用专业术语，而是用温暖、有趣的比喻来启发我。"
-  },
-  {
-    name: "梦境观察员",
-    role: "神秘、克制、善于发现潜意识意象",
-    personality: ["神秘", "克制", "敏锐", "理性"],
-    speakingStyle: "神秘深沉",
-    relationship: "梦境观察者",
-    language: "zh",
-    voiceType: "男声低沉",
-    systemPrompt: "你是一个游走在潜意识边缘的梦境观察者。你说话神秘、克制，像是在念诗。你会把注意力放在我梦境里的奇怪意象上，引导我自己去发现它们背后的隐喻。"
-  }
-];
 
 const formSchema = z.object({
   name: z.string().min(1, "需要一个名字"),
@@ -82,10 +49,6 @@ export default function CharacterNew() {
 
   const personalityTags = form.watch("personality");
 
-  const applyPreset = (preset: typeof PRESETS[0]) => {
-    form.reset(preset as any);
-  };
-
   const handleAddTag = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -119,31 +82,13 @@ export default function CharacterNew() {
   };
 
   return (
-    <div className="space-y-6 pt-4 pb-20 animate-in fade-in">
+    <div className="space-y-6 pt-4 pb-20 animate-in fade-in max-w-2xl mx-auto px-4">
       <header className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setLocation("/characters")}>
+        <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setLocation("/")}>
           <ArrowLeft size={20} />
         </Button>
         <h1 className="text-xl font-serif text-white/90">孕育新灵魂</h1>
       </header>
-
-      <div className="space-y-3">
-        <div className="text-xs text-muted-foreground px-1 uppercase tracking-widest">灵感预设</div>
-        <div className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-none">
-          {PRESETS.map((preset, i) => (
-            <div 
-              key={i} 
-              onClick={() => applyPreset(preset)}
-              className="snap-start shrink-0 w-64 glass-panel p-4 rounded-2xl cursor-pointer hover:border-primary/40 transition-colors"
-            >
-              <div className="font-serif text-primary mb-1 flex items-center gap-2">
-                <Sparkles size={14} /> {preset.name}
-              </div>
-              <div className="text-xs text-muted-foreground line-clamp-2">{preset.role}</div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -293,7 +238,7 @@ export default function CharacterNew() {
             />
           </div>
 
-          <Button type="submit" className="w-full rounded-full py-6 text-base shadow-lg shadow-primary/20" disabled={createMutation.isPending}>
+          <Button type="submit" className="w-full rounded-full py-6 text-base shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90" disabled={createMutation.isPending}>
             {createMutation.isPending ? <Loader2 className="animate-spin" /> : "唤醒陪伴者"}
           </Button>
         </form>

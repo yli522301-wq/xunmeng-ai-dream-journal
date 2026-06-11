@@ -1,6 +1,6 @@
 import { useListDreams, getListDreamsQueryKey } from "@workspace/api-client-react";
 import { Link } from "wouter";
-import { BookOpen, Calendar } from "lucide-react";
+import { BookOpen, Calendar, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
 
@@ -27,10 +27,15 @@ export default function DreamsList() {
   const { data: dreams, isLoading } = useListDreams();
 
   return (
-    <div className="space-y-6 pt-6 animate-in fade-in">
-      <header>
-        <h1 className="text-2xl font-serif text-white/90">梦境陈列室</h1>
-        <p className="text-sm text-muted-foreground mt-1">那些夜晚的碎片</p>
+    <div className="space-y-6 pt-6 animate-in fade-in max-w-2xl mx-auto px-4">
+      <header className="flex items-center gap-4">
+        <Link href="/" className="w-10 h-10 flex items-center justify-center rounded-full glass-panel hover:bg-white/10 transition-colors">
+          <ArrowLeft size={20} className="text-white/70" />
+        </Link>
+        <div>
+          <h1 className="text-2xl font-serif text-white/90">梦境陈列室</h1>
+          <p className="text-sm text-muted-foreground mt-1">那些夜晚的碎片</p>
+        </div>
       </header>
 
       {isLoading ? (
@@ -41,7 +46,9 @@ export default function DreamsList() {
         <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
           <BookOpen size={40} className="text-white/10" />
           <p className="text-muted-foreground text-sm tracking-widest">还没有梦境记录</p>
-          <Link href="/new" className="text-primary text-sm hover:underline">记录第一个梦</Link>
+          <Link href="/" className="px-6 py-2 rounded-full border border-white/20 text-sm hover:bg-white/5 transition-colors">
+            返回梦境空间
+          </Link>
         </div>
       ) : (
         <div className="space-y-4 pb-10">
@@ -83,6 +90,12 @@ export default function DreamsList() {
               </Link>
             </motion.div>
           ))}
+          
+          <div className="pt-4 flex justify-center">
+            <Link href="/" className="px-6 py-2 rounded-full border border-white/10 text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors">
+              返回梦境空间
+            </Link>
+          </div>
         </div>
       )}
     </div>

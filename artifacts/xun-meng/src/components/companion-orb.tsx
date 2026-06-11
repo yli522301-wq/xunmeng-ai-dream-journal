@@ -1,34 +1,70 @@
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
+export type CompanionColor = 'amber' | 'indigo' | 'teal' | 'purple';
+
 interface CompanionOrbProps {
   size?: "lg" | "sm" | "xs";
   isSpeaking?: boolean;
+  isThinking?: boolean;
+  color?: CompanionColor;
   className?: string;
 }
 
-export function CompanionOrb({ size = "lg", isSpeaking = false, className }: CompanionOrbProps) {
+export function CompanionOrb({ 
+  size = "lg", 
+  isSpeaking = false, 
+  isThinking = false,
+  color = 'purple', 
+  className 
+}: CompanionOrbProps) {
   const sizeMap = {
-    lg: "w-[200px] h-[200px]",
+    lg: "w-[180px] h-[180px] sm:w-[200px] sm:h-[200px]",
     sm: "w-[48px] h-[48px]",
     xs: "w-[20px] h-[20px]",
   };
 
   const orbSize = sizeMap[size];
 
+  // Color values
+  const colorMap: Record<CompanionColor, { hsl: string, hex: string }> = {
+    amber: { hsl: "38 90% 60%", hex: "#F5A623" },
+    indigo: { hsl: "240 70% 65%", hex: "#5C6BC0" },
+    teal: { hsl: "185 70% 55%", hex: "#4DD0E1" },
+    purple: { hsl: "var(--primary)", hex: "hsl(var(--primary))" }
+  };
+
+  const currentColor = colorMap[color];
+
   return (
     <div className={cn("relative flex items-center justify-center", orbSize, className)}>
-      {/* Outer pulsing ring */}
+      {/* Outer pulsing rings */}
       <motion.div
-        className="absolute inset-0 rounded-full border border-primary/30"
+        className="absolute inset-[-10%] rounded-full opacity-0"
+        style={{ border: `1px solid hsl(${currentColor.hsl} / 0.3)` }}
         animate={{
-          scale: isSpeaking ? [1, 1.25, 1] : [1.05, 1.15, 1.05],
-          opacity: isSpeaking ? [0.2, 0.6, 0.2] : [0, 0.3, 0],
+          scale: isSpeaking ? [1.1, 1.3, 1.1] : [1.05, 1.2, 1.05],
+          opacity: isSpeaking ? [0.2, 0.4, 0.2] : [0, 0.25, 0],
+          rotate: isThinking ? 180 : 0
         }}
         transition={{
-          duration: isSpeaking ? 2 : 6,
+          duration: isSpeaking ? 2 : 5,
           ease: "easeInOut",
           repeat: Infinity,
+        }}
+      />
+      <motion.div
+        className="absolute inset-[-5%] rounded-full opacity-0"
+        style={{ border: `1px solid hsl(${currentColor.hsl} / 0.4)` }}
+        animate={{
+          scale: isSpeaking ? [1.05, 1.2, 1.05] : [1, 1.1, 1],
+          opacity: isSpeaking ? [0.3, 0.5, 0.3] : [0.1, 0.3, 0.1],
+        }}
+        transition={{
+          duration: isSpeaking ? 1.5 : 7,
+          ease: "easeInOut",
+          repeat: Infinity,
+          delay: 0.5
         }}
       />
 
@@ -36,60 +72,36 @@ export function CompanionOrb({ size = "lg", isSpeaking = false, className }: Com
       <motion.div
         className="absolute inset-0 rounded-full"
         style={{
-          background: "radial-gradient(circle at center, hsl(var(--primary) / 0.8), transparent 70%)",
+          background: `radial-gradient(circle at center, hsl(${currentColor.hsl} / 0.8) 0%, hsl(${currentColor.hsl} / 0.4) 40%, transparent 80%)`,
+          boxShadow: `0 0 40px hsl(${currentColor.hsl} / 0.3)`
         }}
         animate={{
-          scale: isSpeaking ? [0.95, 1.1, 0.95] : [0.97, 1.03, 0.97],
-          opacity: isSpeaking ? [0.7, 1, 0.7] : [0.8, 1, 0.8],
+          scale: isSpeaking ? [0.94, 1.08, 0.94] : [0.96, 1.04, 0.96],
+          opacity: isSpeaking ? [0.8, 1, 0.8] : [0.85, 1, 0.85],
+          rotate: isThinking ? 360 : 0
         }}
         transition={{
-          duration: isSpeaking ? 1.5 : 4,
-          ease: "easeInOut",
-          repeat: Infinity,
+          scale: { duration: isSpeaking ? 1.5 : 4, ease: "easeInOut", repeat: Infinity },
+          opacity: { duration: isSpeaking ? 1.5 : 4, ease: "easeInOut", repeat: Infinity },
+          rotate: { duration: 10, ease: "linear", repeat: Infinity }
         }}
       />
 
-      {/* Inner shimmer */}
+      {/* Inner sparkle */}
       <motion.div
-        className="absolute inset-[20%] rounded-full bg-white/20 blur-md"
+        className="absolute inset-[30%] rounded-full flex items-center justify-center text-white mix-blend-overlay"
         animate={{
-          scale: isSpeaking ? [0.9, 1.2, 0.9] : [1, 1.05, 1],
+          scale: isSpeaking ? [0.9, 1.2, 0.9] : [0.95, 1.05, 0.95],
+          opacity: isThinking ? [0.5, 1, 0.5] : 1
         }}
         transition={{
           duration: isSpeaking ? 1 : 3,
           ease: "easeInOut",
           repeat: Infinity,
         }}
-      />
-
-      {/* Particles (only for lg) */}
-      {size === "lg" && (
-        <div className="absolute inset-[-50%] pointer-events-none">
-          {[...Array(10)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute w-1.5 h-1.5 rounded-full bg-primary/40 blur-[1px]"
-              initial={{
-                x: "50%",
-                y: "50%",
-                opacity: 0,
-              }}
-              animate={{
-                x: ["50%", `${50 + (Math.random() - 0.5) * 100}%`],
-                y: ["50%", `${50 + (Math.random() - 0.5) * 100}%`],
-                opacity: [0, 0.8, 0],
-                scale: [0.5, 1.5, 0.5],
-              }}
-              transition={{
-                duration: 3 + Math.random() * 4,
-                ease: "easeInOut",
-                repeat: Infinity,
-                delay: Math.random() * 2,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      >
+        {size === 'lg' && <span className="text-2xl leading-none">✦</span>}
+      </motion.div>
     </div>
   );
 }
