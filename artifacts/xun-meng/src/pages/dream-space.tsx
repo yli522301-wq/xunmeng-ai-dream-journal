@@ -471,11 +471,13 @@ export default function DreamSpace() {
         </div>
       </div>
 
-      {/* ── HISTORY BOTTOM SHEET ── */}
-      <HistoryBottomSheet
-        history={history}
-        charName={activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
-      />
+      {/* ── HISTORY BOTTOM SHEET — only when conversation has started ── */}
+      {history.length > 0 && (
+        <HistoryBottomSheet
+          history={history}
+          charName={activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
+        />
+      )}
 
       {/* ── BOTTOM INPUT ZONE ── */}
       <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-4 flex-shrink-0"
