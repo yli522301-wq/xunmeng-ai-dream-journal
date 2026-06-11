@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   useGetActiveCharacter, useListCharacters, useActivateCharacter,
   useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage,
@@ -16,77 +16,108 @@ import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-soun
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
 
-// ── Dream character personality config ─────────────────────────────────────
-interface DreamCharConfig {
+// ── Types ──────────────────────────────────────────────────────────────────
+export type CharKey = "daoshen" | "muge" | "anuan";
+export type ResponseMode = "solo" | "multi" | "cross";
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | CharKey;
+  content: string;
+  timestamp: string;
+}
+
+export interface DreamCharConfig {
+  key: CharKey;
+  nameMatch: string;
+  name: string;
+  enName: string;
   particleColor: string;
   glowColor: string;
+  companionColor: CompanionColor;
+  hsl: string;
   subtitle: string;
   hint: string;
   firstMessage: string;
+  stylePrompt: string;
 }
 
-const DREAM_CHARS: { match: string; cfg: DreamCharConfig }[] = [
+// ── Character config ────────────────────────────────────────────────────────
+const DREAM_CHARS: DreamCharConfig[] = [
   {
-    match: "岛深",
-    cfg: {
-      particleColor: "#6B8CFF",
-      glowColor:     "rgba(107,140,255,0.28)",
-      subtitle:      "潜入梦的深处",
-      hint:          "你可以从一个画面开始，我会陪你慢慢往下潜。",
-      firstMessage:  "梦像一片海。你只需要说出最先浮上来的那个画面，我会陪你一起往深处走。",
-    },
+    key: "daoshen",
+    nameMatch: "岛深",
+    name: "岛深",
+    enName: "Daoshan",
+    particleColor: "#6B8CFF",
+    glowColor: "rgba(107,140,255,0.28)",
+    companionColor: "teal",
+    hsl: "185 70% 55%",
+    subtitle: "潜入梦的深处",
+    hint: "你可以从一个画面开始，我会陪你慢慢往下潜。",
+    firstMessage: "梦像一片海。你只需要说出最先浮上来的那个画面，我会陪你一起往深处走。",
+    stylePrompt: "你是岛深，梦境的理性解析者。风格冷静克制，结构化，擅长分析象征意象和潜意识模式，语气略带锋利。你认为暮歌太感性、阿暖太直白，但保持克制的尊重。三位解析者在共同讨论同一个梦。",
   },
   {
-    match: "暮歌",
-    cfg: {
-      particleColor: "#9B7CFF",
-      glowColor:     "rgba(155,124,255,0.28)",
-      subtitle:      "你可以从任何地方开始",
-      hint:          "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。",
-      firstMessage:  "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。你的梦里，最近出现了什么？",
-    },
+    key: "muge",
+    nameMatch: "暮歌",
+    name: "暮歌",
+    enName: "Muge",
+    particleColor: "#9B7CFF",
+    glowColor: "rgba(155,124,255,0.28)",
+    companionColor: "indigo",
+    hsl: "240 70% 65%",
+    subtitle: "你可以从任何地方开始",
+    hint: "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。",
+    firstMessage: "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。你的梦里，最近出现了什么？",
+    stylePrompt: "你是暮歌，梦境的诗意叙述者。语言温柔文学化，擅长把梦境转化为有情绪流动的故事，关注意象的色彩与运动。你认为岛深过于理性、阿暖过于直白，但态度温柔。三位解析者在共同讨论同一个梦。",
   },
   {
-    match: "阿暖",
-    cfg: {
-      particleColor: "#F2A84B",
-      glowColor:     "rgba(242,168,75,0.26)",
-      subtitle:      "我在，慢慢说",
-      hint:          "不用讲完整，哪怕只是一个感觉，也可以交给我。",
-      firstMessage:  "不用急着说清楚。你可以先告诉我，醒来后身体里留下的第一个感觉是什么。",
-    },
+    key: "anuan",
+    nameMatch: "阿暖",
+    name: "阿暖",
+    enName: "Anuan",
+    particleColor: "#F2A84B",
+    glowColor: "rgba(242,168,75,0.26)",
+    companionColor: "amber",
+    hsl: "38 90% 60%",
+    subtitle: "我在，慢慢说",
+    hint: "不用讲完整，哪怕只是一个感觉，也可以交给我。",
+    firstMessage: "不用急着说清楚。你可以先告诉我，醒来后身体里留下的第一个感觉是什么。",
+    stylePrompt: "你是阿暖，温暖陪伴型梦境朋友。先接住情绪再慢慢分析，语气亲近柔和，生活化。你觉得岛深和暮歌说得太复杂，用户需要先被接住情绪。三位解析者在共同讨论同一个梦。",
   },
 ];
 
-const DEFAULT_CFG: DreamCharConfig = DREAM_CHARS[1].cfg;
+const CHAR_MAP = Object.fromEntries(DREAM_CHARS.map(c => [c.key, c])) as Record<CharKey, DreamCharConfig>;
+const ALL_KEYS: CharKey[] = ["daoshen", "muge", "anuan"];
 
 function getCharConfig(name: string): DreamCharConfig {
-  for (const { match, cfg } of DREAM_CHARS) {
-    if (name.includes(match)) return cfg;
+  for (const c of DREAM_CHARS) {
+    if (name.includes(c.nameMatch)) return c;
   }
-  return DEFAULT_CFG;
+  return DREAM_CHARS[1];
 }
 
-// ── Other helpers ───────────────────────────────────────────────────────────
-function getColor(name: string): CompanionColor {
-  if (name.includes("阿暖")) return "amber";
-  if (name.includes("暮歌")) return "indigo";
-  if (name.includes("岛深")) return "teal";
-  return "purple";
-}
-function getEnName(name: string) {
-  if (name.includes("阿暖")) return "Anuan";
-  if (name.includes("暮歌")) return "Muge";
-  if (name.includes("岛深")) return "Daoshan";
-  return "";
-}
+// ── Demo messages ──────────────────────────────────────────────────────────
+const DEMO_MESSAGES: ChatMessage[] = [
+  { id: "d0", role: "user",     content: "我梦到自己一直在赶路，但怎么都赶不上。", timestamp: "昨天" },
+  { id: "d1", role: "daoshen", content: "赶路的焦虑梦几乎是潜意识对现实压力的直接映射——你在追什么，或者怕被什么追上？注意梦里「赶不上」的对象：是时间、是人、还是一辆你永远上不去的车。", timestamp: "昨天" },
+  { id: "d2", role: "muge",    content: "你一直在跑，路却像在延伸。那种追不上的感觉，有时候不是在追目标，而是在追一个正在离开的自己。梦把它变成了距离。", timestamp: "昨天" },
+  { id: "d3", role: "anuan",   content: "赶不上的感觉真的很累人。醒来有没有觉得整个人喘不过气？这个梦可能在说，你最近给自己的压力有点大了。", timestamp: "昨天" },
+];
 
-const COLOR_HSL: Record<CompanionColor, string> = {
-  amber:  "38 90% 60%",
-  indigo: "240 70% 65%",
-  teal:   "185 70% 55%",
-  purple: "255 90% 70%",
-};
+// ── Helpers ────────────────────────────────────────────────────────────────
+function genId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
+function nowTime() {
+  const d = new Date();
+  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+}
+function messagesToApiHistory(msgs: ChatMessage[]) {
+  return msgs.map(m => ({
+    role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+    content: m.role === "user" ? m.content : `[${CHAR_MAP[m.role as CharKey]?.name ?? m.role}] ${m.content}`,
+  }));
+}
 
 const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicType }> = {
   void:  { sound: "none",  music: "none" },
@@ -96,7 +127,18 @@ const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicTyp
   stars: { sound: "night", music: "none" },
 };
 
-type Message = { role: "user" | "assistant"; content: string };
+const AVATAR_STORAGE_KEY = "xm-avatars";
+
+function loadAvatars(): Record<CharKey, string | null> {
+  try {
+    const raw = localStorage.getItem(AVATAR_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { daoshen: null, muge: null, anuan: null };
+}
+function saveAvatars(a: Record<CharKey, string | null>) {
+  try { localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(a)); } catch { /* ignore */ }
+}
 
 // ── Component ───────────────────────────────────────────────────────────────
 export default function DreamSpace() {
@@ -110,11 +152,12 @@ export default function DreamSpace() {
   const createDreamMutation = useCreateDream();
   const recognizeMutation   = useAiRecognizeImage();
 
-  const [reply,       setReply]       = useState<{ text: string; time: string } | null>(null);
-  const [inputText,   setInputText]   = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [isThinking,  setIsThinking]  = useState(false);
-  const [history,     setHistory]     = useState<Message[]>([]);
+  const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [inputText,     setInputText]     = useState("");
+  const [isListening,   setIsListening]   = useState(false);
+  const [isThinking,    setIsThinking]    = useState(false);
+  const [responseMode,  setResponseMode]  = useState<ResponseMode>("solo");
+  const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
 
   const [atmosphereOpen, setAtmosphereOpen] = useState(false);
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
@@ -150,6 +193,13 @@ export default function DreamSpace() {
 
   useEffect(() => () => { stopAmbient(); stopMusic(); }, [stopAmbient, stopMusic]);
 
+  // Persist avatars
+  useEffect(() => { saveAvatars(avatars); }, [avatars]);
+
+  const handleAvatarChange = useCallback((key: CharKey, dataUrl: string) => {
+    setAvatars(prev => ({ ...prev, [key]: dataUrl }));
+  }, []);
+
   const handleSceneSelect = (t: BgTheme) => {
     setBgTheme(t);
     const def = SCENE_DEFAULTS[t];
@@ -158,23 +208,33 @@ export default function DreamSpace() {
     setMusic(def.music);
     playMusic(def.music);
   };
-
   const handleSoundChange = (s: AmbientSoundType) => { setAmbientSound(s); playAmbient(s); };
   const handleMusicChange = (m: MusicType)         => { setMusic(m); playMusic(m); };
 
-  const charColor  = activeChar ? getColor(activeChar.name) : "purple";
-  const hsl        = COLOR_HSL[charColor];
-  const charConfig = activeChar ? getCharConfig(activeChar.name) : DEFAULT_CFG;
+  // ── Derived ──────────────────────────────────────────────────────────────
+  const charConfig    = activeChar ? getCharConfig(activeChar.name) : DREAM_CHARS[1];
+  const activeKey     = charConfig.key;
   const hasAtmosphere = bgTheme !== "void" || ambientSound !== "none" || music !== "none";
 
+  const displayReply = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === activeKey) return messages[i];
+    }
+    return null;
+  }, [messages, activeKey]);
+
+  const isSpeaking = !!displayReply && !isThinking;
+  const hsl        = charConfig.hsl;
+
+  // ── Tab switch ───────────────────────────────────────────────────────────
   const handleTabClick = async (id: string) => {
     if (activeChar?.id === id) return;
     await activateMutation.mutateAsync({ id });
     refetchActive();
-    setReply(null);
-    setHistory([]);
+    // Intentionally do NOT clear messages — shared thread
   };
 
+  // ── TTS ──────────────────────────────────────────────────────────────────
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -183,26 +243,88 @@ export default function DreamSpace() {
     window.speechSynthesis.speak(u);
   };
 
+  // ── Get DB character system prompt by key ─────────────────────────────────
+  const getSystemPrompt = useCallback((key: CharKey): string => {
+    const nameMatch = CHAR_MAP[key].nameMatch;
+    const dbChar = characters?.find(c => c.name.includes(nameMatch));
+    return dbChar?.systemPrompt ?? CHAR_MAP[key].stylePrompt;
+  }, [characters]);
+
+  // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = async (text?: string) => {
     const msg = (text ?? inputText).trim();
     if (!msg || !activeChar) return;
     setInputText("");
     setIsThinking(true);
-    const newHistory: Message[] = [...history, { role: "user", content: msg }];
-    setHistory(newHistory);
+
+    const userMsg: ChatMessage = { id: genId(), role: "user", content: msg, timestamp: nowTime() };
+    const updatedMsgs = [...messages, userMsg];
+    setMessages(updatedMsgs);
+
+    const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
+
     try {
-      const res = await chatMutation.mutateAsync({
-        data: {
-          message: msg,
-          history: newHistory.slice(-8),
-          characterSystemPrompt: activeChar.systemPrompt,
-        },
-      });
-      const now = new Date();
-      const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-      setHistory(h => [...h, { role: "assistant", content: res.reply }]);
-      setReply({ text: res.reply, time });
-      speak(res.reply);
+      // ── Solo mode ──────────────────────────────────────────────────────
+      if (responseMode === "solo") {
+        const res = await chatMutation.mutateAsync({
+          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
+        });
+        const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
+        setMessages(prev => [...prev, reply]);
+        speak(res.reply);
+      }
+
+      // ── Multi mode ────────────────────────────────────────────────────
+      else if (responseMode === "multi") {
+        // Active char first
+        const res1 = await chatMutation.mutateAsync({
+          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
+        });
+        const reply1: ChatMessage = { id: genId(), role: activeKey, content: res1.reply, timestamp: nowTime() };
+        setMessages(prev => [...prev, reply1]);
+        speak(res1.reply);
+
+        // Other two chars — brief supplement
+        const otherKeys = ALL_KEYS.filter(k => k !== activeKey);
+        for (const k of otherKeys) {
+          const cfg = CHAR_MAP[k];
+          const supplementPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[activeKey].name}刚才对这个梦说："${res1.reply}"\n\n请从你的风格角度补充一到两句不同的视角，简短有风格，不要重复${CHAR_MAP[activeKey].name}的意思。`;
+          const res = await chatMutation.mutateAsync({
+            data: { message: msg, history: apiHistory, characterSystemPrompt: supplementPrompt },
+          });
+          const reply: ChatMessage = { id: genId(), role: k, content: res.reply, timestamp: nowTime() };
+          setMessages(prev => [...prev, reply]);
+        }
+      }
+
+      // ── Cross / 互评 mode ─────────────────────────────────────────────
+      else if (responseMode === "cross") {
+        const ordered: CharKey[] = [activeKey, ...ALL_KEYS.filter(k => k !== activeKey)];
+        const replies: { key: CharKey; content: string }[] = [];
+
+        for (const k of ordered) {
+          const cfg = CHAR_MAP[k];
+          let systemPrompt: string;
+
+          if (replies.length === 0) {
+            systemPrompt = getSystemPrompt(k);
+          } else if (replies.length === 1) {
+            const [r1] = replies;
+            systemPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[r1.key].name}说："${r1.content}"\n\n请从你的角度回应这个分析，可以同意、轻微调侃或表示不同意，保持友好梦境感。2-3句话，有你独特的风格。`;
+          } else {
+            const [r1, r2] = replies;
+            systemPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[r1.key].name}说："${r1.content}"\n${CHAR_MAP[r2.key].name}说："${r2.content}"\n\n请用你的风格简短评论两位的观点，可以调侃、补充或总结。2-3句话，保持温和梦境感。`;
+          }
+
+          const res = await chatMutation.mutateAsync({
+            data: { message: msg, history: apiHistory, characterSystemPrompt: systemPrompt },
+          });
+          replies.push({ key: k, content: res.reply });
+          const reply: ChatMessage = { id: genId(), role: k, content: res.reply, timestamp: nowTime() };
+          setMessages(prev => [...prev, reply]);
+          if (k === activeKey) speak(res.reply);
+        }
+      }
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -210,6 +332,7 @@ export default function DreamSpace() {
     }
   };
 
+  // ── Mic ───────────────────────────────────────────────────────────────────
   const toggleMic = () => {
     if (!SpeechRecognition || !recognitionRef.current) {
       toast({ title: "此浏览器不支持语音输入", variant: "destructive" });
@@ -224,6 +347,7 @@ export default function DreamSpace() {
     }
   };
 
+  // ── Image ──────────────────────────────────────────────────────────────────
   const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeChar) return;
@@ -237,14 +361,9 @@ export default function DreamSpace() {
           data: { imageBase64: base64, mimeType: file.type || "image/jpeg" },
         });
         const replyText = `${res.description}\n\n${res.draftContent}`;
-        const now = new Date();
-        const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-        setHistory(h => [
-          ...h,
-          { role: "user", content: "[图片]" },
-          { role: "assistant", content: replyText },
-        ]);
-        setReply({ text: replyText, time });
+        const userMsg: ChatMessage  = { id: genId(), role: "user",     content: "[图片]",  timestamp: nowTime() };
+        const aiMsg:   ChatMessage  = { id: genId(), role: activeKey,  content: replyText, timestamp: nowTime() };
+        setMessages(prev => [...prev, userMsg, aiMsg]);
         speak(replyText);
       } catch {
         toast({ title: "图片感应失败", variant: "destructive" });
@@ -255,15 +374,21 @@ export default function DreamSpace() {
     reader.readAsDataURL(file);
   };
 
+  // ── Save dream ─────────────────────────────────────────────────────────────
   const handleSaveDream = async () => {
-    if (!activeChar || history.length === 0) { toast({ title: "还没有梦境内容" }); return; }
-    const firstUser = history.find(m => m.role === "user")?.content ?? "未命名";
+    if (!activeChar || messages.filter(m => m.role === "user").length === 0) {
+      toast({ title: "还没有梦境内容" }); return;
+    }
+    const firstUser = messages.find(m => m.role === "user")?.content ?? "未命名";
     const title = firstUser.slice(0, 15) + (firstUser.length > 15 ? "…" : "");
-    const content = history.map(m => `[${m.role === "user" ? "你" : activeChar.name}] ${m.content}`).join("\n\n");
+    const content = messages.map(m => {
+      const who = m.role === "user" ? "你" : (CHAR_MAP[m.role as CharKey]?.name ?? m.role);
+      return `[${who}] ${m.content}`;
+    }).join("\n\n");
     try {
       await createDreamMutation.mutateAsync({
         data: { title, content, mood: "calm", clarity: "moderate", isRecurring: false,
-                companionReply: reply?.text, characterId: activeChar.id },
+                companionReply: displayReply?.content, characterId: activeChar.id },
       });
       toast({ title: "已保存到梦境手账 ✦" });
     } catch {
@@ -271,6 +396,7 @@ export default function DreamSpace() {
     }
   };
 
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (!activeChar) {
     return (
       <div className="min-h-screen bg-[#05050A] text-white flex items-center justify-center">
@@ -282,12 +408,12 @@ export default function DreamSpace() {
     );
   }
 
-  const isSpeaking = !!reply && !isThinking;
+  const hasMessages = messages.filter(m => !m.id.startsWith("d")).length > 0 || messages.length > 0;
 
   return (
     <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">
 
-      {/* ── Background layers ── */}
+      {/* ── Background ── */}
       <DreamAntigravityBackground
         particleColor={charConfig.particleColor}
         glowColor={charConfig.glowColor}
@@ -322,7 +448,7 @@ export default function DreamSpace() {
           </div>
         </div>
 
-        {/* ── Character tabs ── */}
+        {/* Character tabs */}
         <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
           style={{ background: "rgba(255,255,255,0.03)" }}>
           {characters?.map(c => {
@@ -333,34 +459,22 @@ export default function DreamSpace() {
                 key={c.id}
                 onClick={() => handleTabClick(c.id)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "6px 13px",
-                  borderRadius: 999,
-                  fontSize: 12,
-                  fontWeight: 500,
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 500,
                   cursor: "pointer",
                   background: active ? "rgba(255,255,255,0.12)" : "transparent",
                   border: `1px solid ${active ? "rgba(255,255,255,0.16)" : "transparent"}`,
                   color: active ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.28)",
                   transition: "all 0.3s ease",
-                  outline: "none",
-                  whiteSpace: "nowrap",
+                  outline: "none", whiteSpace: "nowrap",
                 }}
               >
-                {/* Dot indicator with character colour */}
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    flexShrink: 0,
-                    backgroundColor: active ? cfg.particleColor : "rgba(255,255,255,0.18)",
-                    transition: "background-color 0.3s ease",
-                    boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
-                  }}
-                />
+                <span style={{
+                  width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                  backgroundColor: active ? cfg.particleColor : "rgba(255,255,255,0.18)",
+                  boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
+                  transition: "background-color 0.3s ease",
+                }} />
                 {c.name.replace(/[a-zA-Z\s]/g, "")}
               </button>
             );
@@ -380,7 +494,7 @@ export default function DreamSpace() {
       <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5"
         style={{ zIndex: 10, position: "relative" }}>
 
-        <CompanionOrb size="lg" color={charColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
+        <CompanionOrb size="lg" color={charConfig.companionColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
 
         {/* Name + subtitle — re-animate when character changes */}
         <AnimatePresence mode="wait">
@@ -394,14 +508,12 @@ export default function DreamSpace() {
           >
             <div className="flex items-center gap-2">
               <span className="text-[19px] font-serif tracking-wide" style={{ color: "rgba(255,255,255,0.85)" }}>
-                {activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
+                {charConfig.name}
               </span>
               <span className="text-xs tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.22)" }}>
-                {getEnName(activeChar.name)}
+                {charConfig.enName}
               </span>
-              {/* Pulsing dot in character colour */}
-              <motion.div
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              <motion.div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                 style={{ backgroundColor: charConfig.particleColor }}
                 animate={{ opacity: [0.2, 0.9, 0.2] }}
                 transition={{ duration: 2.8, repeat: Infinity }}
@@ -413,8 +525,7 @@ export default function DreamSpace() {
           </motion.div>
         </AnimatePresence>
 
-        {/* Waveform */}
-        <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charColor} />
+        <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charConfig.companionColor} />
 
         {/* ── RESPONSE / WELCOME CARD ── */}
         <div className="w-full max-w-md min-h-[80px] flex items-center justify-center mt-1">
@@ -426,8 +537,8 @@ export default function DreamSpace() {
                 className="text-[11px] tracking-[0.28em]" style={{ color: "rgba(255,255,255,0.20)" }}>
                 正在感应…
               </motion.div>
-            ) : reply ? (
-              <motion.div key="reply"
+            ) : displayReply ? (
+              <motion.div key={`reply-${displayReply.id}`}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 className="w-full rounded-2xl px-5 py-5 text-center"
@@ -437,19 +548,16 @@ export default function DreamSpace() {
                   boxShadow: `0 2px 28px hsl(${hsl} / 0.05)`,
                 }}>
                 <p className="text-[14px] leading-[1.8] whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.72)" }}>
-                  {reply.text}
+                  {displayReply.content}
                 </p>
                 <p className="mt-3 text-[9px] tracking-[0.22em]" style={{ color: "rgba(255,255,255,0.16)" }}>
-                  {reply.time}
+                  {displayReply.timestamp}
                 </p>
               </motion.div>
             ) : (
-              /* Welcome card — character's first message, shown before any conversation */
               <motion.div
                 key={`welcome-${activeChar.id}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
                 className="w-full flex flex-col items-center gap-3"
               >
@@ -471,17 +579,41 @@ export default function DreamSpace() {
         </div>
       </div>
 
-      {/* ── HISTORY BOTTOM SHEET — only when conversation has started ── */}
-      {history.length > 0 && (
+      {/* ── HISTORY BOTTOM SHEET ── only when there are messages */}
+      {hasMessages && (
         <HistoryBottomSheet
-          history={history}
-          charName={activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
+          messages={messages}
+          charMap={Object.fromEntries(DREAM_CHARS.map(c => [c.key, { name: c.name, enName: c.enName, particleColor: c.particleColor }]))}
+          avatars={avatars}
+          onAvatarChange={handleAvatarChange}
         />
       )}
 
       {/* ── BOTTOM INPUT ZONE ── */}
-      <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-4 flex-shrink-0"
+      <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-3 flex-shrink-0"
         style={{ zIndex: 30, position: "relative" }}>
+
+        {/* Response mode selector */}
+        <div className="flex items-center gap-1 w-full justify-center">
+          {(["solo", "multi", "cross"] as ResponseMode[]).map(mode => {
+            const labels: Record<ResponseMode, string> = { solo: "单人回应", multi: "多人回应", cross: "互评模式" };
+            const active = responseMode === mode;
+            return (
+              <button key={mode} onClick={() => setResponseMode(mode)}
+                style={{
+                  padding: "3px 10px", borderRadius: 999, fontSize: 10,
+                  letterSpacing: "0.08em",
+                  background: active ? "rgba(255,255,255,0.07)" : "transparent",
+                  border: `1px solid ${active ? "rgba(255,255,255,0.10)" : "transparent"}`,
+                  color: active ? `rgba(255,255,255,0.55)` : "rgba(255,255,255,0.18)",
+                  transition: "all 0.2s ease",
+                  cursor: "pointer", outline: "none",
+                }}>
+                {labels[mode]}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Text input + image */}
         <div className="w-full flex items-center gap-3">
@@ -489,7 +621,7 @@ export default function DreamSpace() {
             type="text" value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="或者直接输入文字…"
+            placeholder={`对${charConfig.name}说点什么…`}
             className="flex-1 bg-transparent text-sm focus:outline-none pb-1 transition-colors"
             style={{
               color: "rgba(255,255,255,0.50)",
@@ -506,9 +638,8 @@ export default function DreamSpace() {
           </button>
         </div>
 
-        {/* Main row: atmosphere | mic | spacer */}
+        {/* Mic row */}
         <div className="flex items-center justify-between w-full">
-
           <button onClick={() => setAtmosphereOpen(true)}
             className="flex flex-col items-center gap-1 transition-colors"
             style={{ color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)" }}
@@ -524,7 +655,6 @@ export default function DreamSpace() {
             )}
           </button>
 
-          {/* Mic — hero */}
           <motion.button
             onClick={toggleMic}
             className="relative flex items-center justify-center rounded-full flex-shrink-0"
@@ -554,7 +684,6 @@ export default function DreamSpace() {
           <div style={{ width: 40 }} />
         </div>
 
-        {/* Listening hint */}
         <AnimatePresence>
           {isListening && (
             <motion.p
@@ -569,7 +698,6 @@ export default function DreamSpace() {
         </AnimatePresence>
       </div>
 
-      {/* ── ATMOSPHERE OVERLAY ── */}
       <AtmospherePanel
         open={atmosphereOpen}
         theme={bgTheme}
