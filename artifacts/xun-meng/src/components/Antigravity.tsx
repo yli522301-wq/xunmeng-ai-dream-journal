@@ -152,7 +152,7 @@ export function Antigravity({
         <meshBasicMaterial
           color={color}
           transparent
-          opacity={0.95}
+          opacity={1}
           toneMapped={false}
         />
       </instancedMesh>

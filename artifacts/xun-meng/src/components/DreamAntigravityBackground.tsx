@@ -127,6 +127,23 @@ export function DreamAntigravityBackground() {
         }}
       >
         {/* ── Three.js canvas ──────────────────────────────────────────────── */}
+        {/* ── Orbit glow — elliptical bloom centred on the ring, z-index 0 ── */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: 520,
+            height: 260,
+            transform: "translate(-50%, -12%)",
+            background:
+              "radial-gradient(ellipse, rgba(139,92,255,0.16) 0%, rgba(139,92,255,0.08) 35%, transparent 70%)",
+            filter: "blur(24px)",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+
         <Canvas
           camera={{ position: [0, 0, 50], fov: 35 }}
           dpr={
@@ -142,22 +159,22 @@ export function DreamAntigravityBackground() {
             alpha: true,
             powerPreference: "low-power",
           }}
-          style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+          style={{ width: "100%", height: "100%", pointerEvents: "none", zIndex: 0, position: "relative" }}
         >
           <Antigravity
-            count={isMobile ? 160 : 280}
-            magnetRadius={8}
-            ringRadius={8}
+            count={isMobile ? 180 : 360}
+            magnetRadius={9}
+            ringRadius={8.5}
             waveSpeed={0.55}
-            waveAmplitude={1.35}
-            particleSize={isMobile ? 1.5 : 1.9}
-            lerpSpeed={0.075}
-            color="#8B5CFF"
-            rotationSpeed={0.05}
-            depthFactor={1.15}
-            pulseSpeed={3.6}
-            fieldStrength={12}
-            particleVariance={1.25}
+            waveAmplitude={1.25}
+            particleSize={isMobile ? 1.7 : 2.25}
+            lerpSpeed={0.08}
+            color="#9B7CFF"
+            rotationSpeed={0.045}
+            depthFactor={1.1}
+            pulseSpeed={3.2}
+            fieldStrength={14}
+            particleVariance={1.15}
             autoAnimate
             mousePosRef={mousePosRef}
           />
