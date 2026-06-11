@@ -93,7 +93,7 @@ function useTilt(intensity = 6) {
   return { onMouseMove, onMouseLeave, tiltStyle: style };
 }
 
-// ── Calendar Panel ────────────────────────────────────────────────────────────
+// ── Calendar Panel — fixed centered modal ────────────────────────────────────
 function CalendarPanel({
   dreamsByDate,
   selectedDate,
@@ -112,7 +112,7 @@ function CalendarPanel({
   const next = () => setCal(c => c.month === 12 ? { year: c.year + 1, month: 1 } : { ...c, month: c.month + 1 });
 
   const totalDays = getDaysInMonth(cal.year, cal.month);
-  const firstWd  = getFirstWeekday(cal.year, cal.month);
+  const firstWd   = getFirstWeekday(cal.year, cal.month);
   const cells: (number | null)[] = [
     ...Array(firstWd).fill(null),
     ...Array.from({ length: totalDays }, (_, i) => i + 1),
@@ -122,116 +122,133 @@ function CalendarPanel({
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -12, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -8, scale: 0.97 }}
-      transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-      className="absolute left-0 right-0 z-30 mx-5"
-      style={{ top: "calc(100% + 8px)" }}
-      onClick={e => e.stopPropagation()}
-    >
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{
-          background: "rgba(8,8,18,0.97)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          backdropFilter: "blur(32px)",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
-        }}
+    <>
+      {/* Backdrop */}
+      <motion.div
+        className="fixed inset-0 z-40"
+        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={onClose}
+      />
+
+      {/* Calendar card — centered on screen */}
+      <motion.div
+        className="fixed z-50"
+        style={{ top: "50%", left: "50%", x: "-50%", y: "-50%", width: "min(340px, 92vw)" }}
+        initial={{ opacity: 0, scale: 0.94, y: "-46%" }}
+        animate={{ opacity: 1, scale: 1, y: "-50%" }}
+        exit={{ opacity: 0, scale: 0.95, y: "-46%" }}
+        transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
+        onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-3">
-          <button onClick={prev} className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity"
-            style={{ color: "rgba(255,255,255,0.35)" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity="0.75")}
-            onMouseLeave={e => (e.currentTarget.style.opacity="1")}>
-            <ChevronLeft size={14} />
-          </button>
-          <span className="text-[13px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.70)" }}>
-            {cal.year}年{cal.month}月
-          </span>
-          <button onClick={next} className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity"
-            style={{ color: "rgba(255,255,255,0.35)" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity="0.75")}
-            onMouseLeave={e => (e.currentTarget.style.opacity="1")}>
-            <ChevronRight size={14} />
-          </button>
-        </div>
-
-        {/* Weekday headers */}
-        <div className="grid grid-cols-7 px-4 pb-1">
-          {WEEKDAYS.map(w => (
-            <div key={w} className="text-center text-[10px] tracking-widest py-1"
-              style={{ color: "rgba(255,255,255,0.20)" }}>
-              {w}
-            </div>
-          ))}
-        </div>
-
-        {/* Days grid */}
-        <div className="grid grid-cols-7 px-4 pb-4 gap-y-0.5">
-          {cells.map((day, i) => {
-            if (!day) return <div key={i} />;
-            const key = `${cal.year}-${String(cal.month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-            const dreams = dreamsByDate[key] ?? [];
-            const hasDreams = dreams.length > 0;
-            const isToday = key === todayStr;
-            const isSelected = key === selectedDate;
-            const dotColors = [...new Set(dreams.map(d => CS[d.activeCharacter]?.dot ?? "#fff"))].slice(0, 3);
-
-            return (
-              <motion.button
-                key={i}
-                onClick={() => onSelect(isSelected ? null : key)}
-                className="flex flex-col items-center py-1 rounded-xl"
-                style={{
-                  background: isSelected ? `rgba(107,140,255,0.18)` : "transparent",
-                  border: isSelected ? "1px solid rgba(107,140,255,0.30)" : "1px solid transparent",
-                }}
-                whileHover={{ background: hasDreams ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)" }}
-                whileTap={{ scale: 0.93 }}
-              >
-                <span className="text-[11px] tabular-nums"
-                  style={{
-                    color: isSelected ? "rgba(107,140,255,0.95)" : isToday ? "rgba(255,255,255,0.80)" : hasDreams ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.20)",
-                    fontWeight: isToday || isSelected ? 500 : 400,
-                  }}>
-                  {day}
-                </span>
-                {hasDreams && (
-                  <div className="flex gap-[2px] mt-[2px]">
-                    {dotColors.map((c, di) => (
-                      <motion.div key={di} className="w-[4px] h-[4px] rounded-full"
-                        style={{ backgroundColor: c, opacity: 0.75 }}
-                        animate={{ opacity: [0.5, 0.9, 0.5] }}
-                        transition={{ duration: 2.5 + di * 0.4, repeat: Infinity, delay: di * 0.3 }} />
-                    ))}
-                  </div>
-                )}
-                {!hasDreams && <div className="h-[6px]" />}
-              </motion.button>
-            );
-          })}
-        </div>
-
-        {/* Footer: close */}
-        <div className="flex items-center justify-center pb-3 pt-1 gap-3">
-          {selectedDate && (
-            <button onClick={() => onSelect(null)}
-              className="text-[10px] tracking-wide flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.28)" }}>
-              <X size={9} />清除筛选
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{
+            background: "rgba(8,8,20,0.98)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            backdropFilter: "blur(40px)",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.70), 0 0 0 1px rgba(107,140,255,0.06)",
+          }}
+        >
+          {/* Month nav */}
+          <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <button onClick={prev}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.40)" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+              <ChevronLeft size={15} />
             </button>
-          )}
-          <button onClick={onClose}
-            className="text-[10px] tracking-wide px-3 py-1.5 rounded-full"
-            style={{ color: "rgba(255,255,255,0.18)" }}>
-            关闭
-          </button>
+            <span className="text-[14px] tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.75)" }}>
+              {cal.year}年{cal.month}月
+            </span>
+            <button onClick={next}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.40)" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+              <ChevronRight size={15} />
+            </button>
+          </div>
+
+          {/* Weekday labels */}
+          <div className="grid grid-cols-7 px-3 pb-1">
+            {WEEKDAYS.map(w => (
+              <div key={w} className="text-center text-[10px] tracking-widest py-1"
+                style={{ color: "rgba(255,255,255,0.22)" }}>
+                {w}
+              </div>
+            ))}
+          </div>
+
+          {/* Days */}
+          <div className="grid grid-cols-7 px-3 pb-4 gap-y-1">
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} />;
+              const key = `${cal.year}-${String(cal.month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+              const dreams    = dreamsByDate[key] ?? [];
+              const hasDreams = dreams.length > 0;
+              const isToday   = key === todayStr;
+              const isSel     = key === selectedDate;
+              const dots = [...new Set(dreams.map(d => CS[d.activeCharacter]?.dot ?? "#fff"))].slice(0, 3);
+
+              return (
+                <motion.button key={`${cal.year}-${cal.month}-${day}`}
+                  onClick={() => onSelect(isSel ? null : key)}
+                  className="flex flex-col items-center justify-center py-1.5 rounded-xl"
+                  style={{
+                    background: isSel ? "rgba(107,140,255,0.20)" : "transparent",
+                    border: isSel ? "1px solid rgba(107,140,255,0.35)" : isToday ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent",
+                  }}
+                  whileHover={{ background: hasDreams ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.03)" }}
+                  whileTap={{ scale: 0.90 }}>
+                  <span className="text-[12px] tabular-nums leading-none"
+                    style={{
+                      color: isSel ? "rgba(130,160,255,0.95)" : isToday ? "rgba(255,255,255,0.85)" : hasDreams ? "rgba(255,255,255,0.60)" : "rgba(255,255,255,0.22)",
+                      fontWeight: isSel || isToday ? 600 : 400,
+                    }}>
+                    {day}
+                  </span>
+                  {hasDreams ? (
+                    <div className="flex gap-[3px] mt-[3px]">
+                      {dots.map((c, di) => (
+                        <motion.div key={di} className="w-[4px] h-[4px] rounded-full"
+                          style={{ backgroundColor: c }}
+                          animate={{ opacity: [0.5, 1, 0.5] }}
+                          transition={{ duration: 2.2 + di * 0.3, repeat: Infinity, delay: di * 0.2 }} />
+                      ))}
+                    </div>
+                  ) : <div className="h-[7px]" />}
+                </motion.button>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-center gap-3 pb-4 pt-1 border-t" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+            {selectedDate && (
+              <button onClick={() => { onSelect(null); onClose(); }}
+                className="text-[10px] tracking-wide flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-opacity"
+                style={{ background: "rgba(107,140,255,0.10)", border: "1px solid rgba(107,140,255,0.18)", color: "rgba(107,140,255,0.70)" }}
+                onMouseEnter={e => (e.currentTarget.style.opacity="0.75")}
+                onMouseLeave={e => (e.currentTarget.style.opacity="1")}>
+                <Sparkles size={9} />全部梦境
+              </button>
+            )}
+            <button onClick={onClose}
+              className="text-[10px] tracking-wide px-3 py-1.5 rounded-full"
+              style={{ color: "rgba(255,255,255,0.20)" }}
+              onMouseEnter={e => (e.currentTarget.style.opacity="0.6")}
+              onMouseLeave={e => (e.currentTarget.style.opacity="1")}>
+              关闭
+            </button>
+          </div>
         </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </>
   );
 }
 
@@ -635,6 +652,18 @@ export default function DreamArchive() {
     <div className="min-h-screen w-full bg-[#05050A] text-white flex flex-col relative overflow-x-hidden"
       onClick={() => calOpen && setCalOpen(false)}>
 
+      {/* ── Calendar modal — lives at page root so it's never clipped by a parent ── */}
+      <AnimatePresence>
+        {calOpen && (
+          <CalendarPanel
+            dreamsByDate={dreamsByDate}
+            selectedDate={selectedDate}
+            onSelect={d => { setSelectedDate(d); if (d) setCalOpen(false); }}
+            onClose={() => setCalOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-[0.038]"
@@ -657,46 +686,30 @@ export default function DreamArchive() {
           </button>
 
           {/* Calendar button */}
-          <div className="relative">
-            <motion.button
-              onClick={e => { e.stopPropagation(); setCalOpen(s => !s); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background: calOpen || selectedDate ? "rgba(107,140,255,0.14)" : "rgba(255,255,255,0.04)",
-                border: calOpen || selectedDate ? "1px solid rgba(107,140,255,0.28)" : "1px solid rgba(255,255,255,0.07)",
-              }}
-              whileHover={{ opacity: 0.82 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <CalendarDays size={12} style={{ color: selectedDate ? "rgba(107,140,255,0.88)" : "rgba(255,255,255,0.32)" }} />
-              <span className="text-[10px] tracking-wider" style={{ color: selectedDate ? "rgba(107,140,255,0.80)" : "rgba(255,255,255,0.28)" }}>
-                {selectedDate
-                  ? selectedDate.replace(/-/g, ".").slice(2)
-                  : "日期"}
-              </span>
-              {selectedDate && (
-                <motion.button
-                  onClick={e => { e.stopPropagation(); setSelectedDate(null); }}
-                  className="ml-0.5"
-                  whileTap={{ scale: 0.85 }}
-                >
-                  <X size={9} style={{ color: "rgba(107,140,255,0.60)" }} />
-                </motion.button>
-              )}
-            </motion.button>
-
-            {/* Calendar panel */}
-            <AnimatePresence>
-              {calOpen && (
-                <CalendarPanel
-                  dreamsByDate={dreamsByDate}
-                  selectedDate={selectedDate}
-                  onSelect={d => { setSelectedDate(d); if (d) setCalOpen(false); }}
-                  onClose={() => setCalOpen(false)}
-                />
-              )}
-            </AnimatePresence>
-          </div>
+          <motion.button
+            onClick={e => { e.stopPropagation(); setCalOpen(s => !s); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+            style={{
+              background: calOpen || selectedDate ? "rgba(107,140,255,0.14)" : "rgba(255,255,255,0.04)",
+              border: calOpen || selectedDate ? "1px solid rgba(107,140,255,0.28)" : "1px solid rgba(255,255,255,0.07)",
+            }}
+            whileHover={{ opacity: 0.82 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <CalendarDays size={12} style={{ color: selectedDate ? "rgba(107,140,255,0.88)" : "rgba(255,255,255,0.32)" }} />
+            <span className="text-[11px] tracking-wide" style={{ color: selectedDate ? "rgba(107,140,255,0.80)" : "rgba(255,255,255,0.32)" }}>
+              {selectedDate ? selectedDate.replace(/-/g, ".").slice(2) : "日期"}
+            </span>
+            {selectedDate && (
+              <motion.span
+                onClick={e => { e.stopPropagation(); setSelectedDate(null); }}
+                className="ml-0.5"
+                whileTap={{ scale: 0.85 }}
+              >
+                <X size={9} style={{ color: "rgba(107,140,255,0.60)" }} />
+              </motion.span>
+            )}
+          </motion.button>
         </div>
 
         {/* Title */}
@@ -722,7 +735,7 @@ export default function DreamArchive() {
               滑动浏览 · 点击进入
             </span>
           </div>
-          <div style={{ height: 300 }}>
+          <div style={{ height: 420 }}>
             <CircularGallery
               items={galleryItems}
               bend={2.5}

@@ -2,43 +2,48 @@
 /* eslint-disable */
 /**
  * CircularGallery — WebGL curved gallery built with OGL.
- * 巡梦专属版：深色梦境风格，支持 onItemClick 点击进入详情。
+ * 巡梦专属版：深色梦境风格，弯曲排列，拖拽滚动，点击进入详情。
+ *
+ * 坐标系说明：
+ *   所有 mesh 的 position 保持在原点 (0,0,0)。
+ *   uOffset = 当前卡片的世界 x 中心位置（由滚动偏移计算）。
+ *   顶点着色器直接输出弯曲后的世界坐标，modelViewMatrix 只含相机变换。
  */
 import { useEffect, useRef } from "react";
 import "./CircularGallery.css";
 
 // ── GLSL ─────────────────────────────────────────────────────────────────────
-const vertex = /* glsl */ `
+const vertex = /* glsl */`
   attribute vec3 position;
   attribute vec2 uv;
 
   uniform mat4 modelViewMatrix;
   uniform mat4 projectionMatrix;
-  uniform float uOffset;
-  uniform float uBend;
+  uniform float uOffset;   /* 该卡片当前世界 x 中心 */
+  uniform float uBend;     /* 弯曲强度 */
 
   varying vec2 vUv;
 
   void main() {
     vUv = uv;
-    vec3 pos = position;
 
-    // Map x world position to cylinder arc
-    float xWorld = pos.x + uOffset;
-    float r      = 1.0 / max(abs(uBend), 0.0001) * sign(uBend == 0.0 ? 1.0 : uBend);
-    float theta  = xWorld * uBend;
-    float sinT   = sin(theta);
-    float cosT   = cos(theta);
+    /* 顶点世界 x = 局部 x + 卡片中心世界 x */
+    float xW = position.x + uOffset;
 
-    // Curved x and z; keep y (height) flat
-    pos.x = sinT / uBend - uOffset;
-    pos.z = (cosT - 1.0) / uBend;
+    /* 保护 bend=0 */
+    float b = abs(uBend) < 0.001 ? 0.001 : uBend;
 
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    float theta = xW * b;
+    float finalX = sin(theta) / b;
+    float finalZ = (cos(theta) - 1.0) / b;
+
+    /* mesh 在原点，modelViewMatrix 只有相机变换 */
+    gl_Position = projectionMatrix * modelViewMatrix *
+                  vec4(finalX, position.y, finalZ, 1.0);
   }
 `;
 
-const fragment = /* glsl */ `
+const fragment = /* glsl */`
   precision highp float;
   uniform sampler2D tMap;
   varying vec2 vUv;
@@ -47,25 +52,24 @@ const fragment = /* glsl */ `
   }
 `;
 
-// ── Canvas texture helpers ────────────────────────────────────────────────────
+// ── Canvas texture builders ───────────────────────────────────────────────────
 const CVS_W = 512;
 const CVS_H = 384;
 
-const CHAR_COLORS = {
-  daoshen: { from: "rgba(40,100,180,0.85)", to: "rgba(5,5,20,0.95)", star: "rgba(107,140,255,0.70)" },
-  muge:    { from: "rgba(60,30,160,0.85)",  to: "rgba(5,5,20,0.95)", star: "rgba(155,124,255,0.70)" },
-  anuan:   { from: "rgba(160,90,20,0.80)",  to: "rgba(5,5,20,0.95)", star: "rgba(242,168,75,0.70)" },
-  default: { from: "rgba(30,30,100,0.85)",  to: "rgba(5,5,20,0.95)", star: "rgba(130,160,255,0.60)" },
+const CHAR_PAL = {
+  daoshen: { a: "#0a1e48", b: "#050510", glow: "rgba(107,140,255,0.55)" },
+  muge:    { a: "#100a35", b: "#050510", glow: "rgba(155,124,255,0.55)" },
+  anuan:   { a: "#3d1e04", b: "#050510", glow: "rgba(242,168,75,0.55)"  },
+  default: { a: "#0a0a28", b: "#050510", glow: "rgba(120,150,255,0.45)" },
 };
 
-function scatterStars(ctx, count, color) {
-  ctx.fillStyle = color;
-  for (let i = 0; i < count; i++) {
+function addStars(ctx, n) {
+  for (let i = 0; i < n; i++) {
     const x = Math.random() * CVS_W;
     const y = Math.random() * CVS_H;
-    const r = Math.random() * 1.4 + 0.3;
-    const a = Math.random() * 0.55 + 0.1;
-    ctx.globalAlpha = a;
+    const r = Math.random() * 1.2 + 0.3;
+    ctx.globalAlpha = Math.random() * 0.5 + 0.08;
+    ctx.fillStyle = "#fff";
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -73,121 +77,95 @@ function scatterStars(ctx, count, color) {
   ctx.globalAlpha = 1;
 }
 
-function drawTitle(ctx, title) {
+function stampTitle(ctx, title) {
   if (!title) return;
   ctx.save();
-  ctx.font = "500 22px 'Noto Serif SC', serif";
+  ctx.font = "500 20px serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  ctx.shadowColor = "rgba(0,0,0,0.90)";
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = "rgba(237,235,255,0.92)";
+  ctx.shadowColor = "rgba(0,0,0,0.95)";
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = "rgba(237,235,255,0.90)";
 
-  // Simple CJK line-wrap
-  const maxW = CVS_W - 56;
-  const chars = [...title];
+  const maxW = CVS_W - 52;
+  const chars = [...String(title)];
   const lines = [];
   let line = "";
   for (const ch of chars) {
     const test = line + ch;
-    if (ctx.measureText(test).width > maxW && line.length > 0) {
-      lines.push(line);
-      line = ch;
-    } else {
-      line = test;
-    }
+    if (ctx.measureText(test).width > maxW && line.length) {
+      lines.push(line); line = ch;
+    } else { line = test; }
   }
   lines.push(line);
 
-  const lh = 30;
-  let y = CVS_H - 22;
+  let y = CVS_H - 20;
   for (let i = lines.length - 1; i >= 0; i--) {
     ctx.fillText(lines[i], CVS_W / 2, y);
-    y -= lh;
+    y -= 28;
   }
   ctx.restore();
 }
 
-function buildFallbackCanvas(charKey, title) {
+function makeFallback(charKey, title) {
   const cvs = document.createElement("canvas");
-  cvs.width = CVS_W;
-  cvs.height = CVS_H;
+  cvs.width = CVS_W; cvs.height = CVS_H;
   const ctx = cvs.getContext("2d");
-  const pal = CHAR_COLORS[charKey] || CHAR_COLORS.default;
+  const pal = CHAR_PAL[charKey] || CHAR_PAL.default;
 
-  // Gradient background
-  const grd = ctx.createLinearGradient(0, 0, CVS_W, CVS_H);
-  grd.addColorStop(0, pal.from);
-  grd.addColorStop(1, pal.to);
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, CVS_W, CVS_H);
+  const g = ctx.createLinearGradient(0, 0, CVS_W, CVS_H);
+  g.addColorStop(0, pal.a); g.addColorStop(1, pal.b);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CVS_W, CVS_H);
 
-  // Stars
-  scatterStars(ctx, 70, pal.star);
+  addStars(ctx, 65);
 
-  // Central glow
-  const rg = ctx.createRadialGradient(CVS_W / 2, CVS_H * 0.42, 0, CVS_W / 2, CVS_H * 0.42, 120);
-  rg.addColorStop(0, pal.star.replace("0.70", "0.28"));
-  rg.addColorStop(1, "transparent");
-  ctx.fillStyle = rg;
-  ctx.fillRect(0, 0, CVS_W, CVS_H);
+  // Glow orb
+  const rg = ctx.createRadialGradient(CVS_W/2, CVS_H*0.40, 0, CVS_W/2, CVS_H*0.40, 110);
+  rg.addColorStop(0, pal.glow); rg.addColorStop(1, "transparent");
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, CVS_W, CVS_H);
 
-  // Bottom gradient for text legibility
-  const bg = ctx.createLinearGradient(0, CVS_H * 0.55, 0, CVS_H);
-  bg.addColorStop(0, "transparent");
-  bg.addColorStop(1, "rgba(5,5,14,0.92)");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, CVS_W, CVS_H);
+  // Bottom fade for text
+  const bg = ctx.createLinearGradient(0, CVS_H * 0.52, 0, CVS_H);
+  bg.addColorStop(0, "transparent"); bg.addColorStop(1, "rgba(3,3,12,0.94)");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, CVS_W, CVS_H);
 
-  drawTitle(ctx, title);
+  stampTitle(ctx, title);
   return cvs;
 }
 
-function buildImageCanvas(imgSrc, charKey, title) {
-  return new Promise((resolve) => {
+function makeImageCanvas(src, charKey, title) {
+  return new Promise(resolve => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       const cvs = document.createElement("canvas");
-      cvs.width = CVS_W;
-      cvs.height = CVS_H;
+      cvs.width = CVS_W; cvs.height = CVS_H;
       const ctx = cvs.getContext("2d");
 
-      // Cover-fill the image
-      const aspect = CVS_W / CVS_H;
-      const ia = img.width / img.height;
+      // Cover-crop
+      const ar = CVS_W / CVS_H, ai = img.width / img.height;
       let sx = 0, sy = 0, sw = img.width, sh = img.height;
-      if (ia > aspect) {
-        sw = img.height * aspect;
-        sx = (img.width - sw) / 2;
-      } else {
-        sh = img.width / aspect;
-        sy = (img.height - sh) / 2;
-      }
+      if (ai > ar) { sw = img.height * ar; sx = (img.width - sw) / 2; }
+      else         { sh = img.width / ar;  sy = (img.height - sh) / 2; }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CVS_W, CVS_H);
 
-      // Dark vignette overlay
-      ctx.fillStyle = "rgba(5,5,16,0.40)";
-      ctx.fillRect(0, 0, CVS_W, CVS_H);
+      ctx.fillStyle = "rgba(5,5,16,0.40)"; ctx.fillRect(0, 0, CVS_W, CVS_H);
 
-      // Bottom gradient for text
-      const bg = ctx.createLinearGradient(0, CVS_H * 0.50, 0, CVS_H);
-      bg.addColorStop(0, "transparent");
-      bg.addColorStop(1, "rgba(5,5,12,0.90)");
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, CVS_W, CVS_H);
+      const bg = ctx.createLinearGradient(0, CVS_H * 0.48, 0, CVS_H);
+      bg.addColorStop(0, "transparent"); bg.addColorStop(1, "rgba(4,4,12,0.92)");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, CVS_W, CVS_H);
 
-      drawTitle(ctx, title);
+      stampTitle(ctx, title);
       resolve(cvs);
     };
-    img.onerror = () => resolve(buildFallbackCanvas(charKey, title));
-    img.src = imgSrc;
+    img.onerror = () => resolve(makeFallback(charKey, title));
+    img.src = src;
   });
 }
 
-async function buildTextureCanvas(item) {
-  if (item.image) return buildImageCanvas(item.image, item.charKey, item.text);
-  return buildFallbackCanvas(item.charKey, item.text);
+async function buildCanvas(item) {
+  if (item.image) return makeImageCanvas(item.image, item.charKey, item.text);
+  return makeFallback(item.charKey, item.text);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -200,75 +178,79 @@ export default function CircularGallery({
   scrollSpeed = 2,
   onItemClick,
 }) {
-  const mountRef = useRef(null);
+  const mountRef  = useRef(null);
+  const cleanupRef = useRef(null);
 
   useEffect(() => {
-    if (!mountRef.current || items.length === 0) return;
-
     const container = mountRef.current;
+    if (!container || items.length === 0) return;
+
+    // Kill any previous instance
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
+
     let destroyed = false;
-    let raf = null;
+    let rafId = null;
 
-    // Avoid double-init in React StrictMode
-    if (container.dataset.glInit === "1") return;
-    container.dataset.glInit = "1";
-
-    let cleanupFns = [];
+    // Pad items so we always have at least 6 visible cards
+    const MIN_CARDS = 6;
+    let paddedItems = [...items];
+    if (paddedItems.length < MIN_CARDS) {
+      while (paddedItems.length < MIN_CARDS) {
+        paddedItems = [...paddedItems, ...items];
+      }
+      paddedItems = paddedItems.slice(0, Math.max(MIN_CARDS, items.length));
+    }
 
     (async () => {
       let ogl;
-      try {
-        ogl = await import("ogl");
-      } catch (e) {
-        console.error("[CircularGallery] ogl import failed", e);
-        return;
-      }
+      try { ogl = await import("ogl"); }
+      catch (e) { console.error("[CircularGallery] ogl load failed", e); return; }
       if (destroyed) return;
 
       const { Renderer, Camera, Transform, Program, Mesh, Plane, Texture } = ogl;
 
-      // ── Renderer
-      const renderer = new Renderer({
-        alpha: true,
-        antialias: true,
-        powerPreference: "high-performance",
-      });
+      // ── Renderer (transparent background)
+      const renderer = new Renderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
       const gl = renderer.gl;
       gl.clearColor(0, 0, 0, 0);
-      container.appendChild(gl.canvas);
-      gl.canvas.style.display = "block";
-      gl.canvas.style.width = "100%";
-      gl.canvas.style.height = "100%";
+
+      const canvas = gl.canvas;
+      canvas.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;";
+      container.appendChild(canvas);
 
       // ── Camera
-      const FOV = 45;
+      const FOV  = 40;
       const camera = new Camera(gl, { fov: FOV });
-      camera.position.z = 5;
+      camera.position.set(0, 0, 5);
 
       // ── Scene
       const scene = new Transform();
 
-      // ── Resize
-      const onResize = () => {
-        if (!container) return;
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
-      };
-      onResize();
-      window.addEventListener("resize", onResize);
-      cleanupFns.push(() => window.removeEventListener("resize", onResize));
+      // ── Resize helper
+      function resize() {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (!w || !h) return;
+        renderer.setSize(w, h);
+        camera.perspective({ aspect: w / h });
+      }
+      resize();
+      const ro = new ResizeObserver(resize);
+      ro.observe(container);
 
-      // ── Build textures from canvases
-      const canvases = await Promise.all(items.map(buildTextureCanvas));
+      // ── Build textures
+      const canvases = await Promise.all(paddedItems.map(buildCanvas));
       if (destroyed) return;
 
-      // ── Card dimensions (4∶3 proportion)
-      const CARD_W = 1.65;
-      const CARD_H = 1.24;
-      const GAP    = 0.22;
-      const STEP   = CARD_W + GAP;
+      // Card dimensions
+      const CARD_W  = 1.6;
+      const CARD_H  = 1.2;
+      const STEP    = CARD_W + 0.24;
+      const N       = paddedItems.length;
+      const totalW  = (N - 1) * STEP;
 
-      const slides = items.map((item, i) => {
+      // Create slides — ALL meshes at origin; shader handles world positioning
+      const slides = paddedItems.map((item, i) => {
         const tex = new Texture(gl, {
           image: canvases[i],
           generateMipmaps: false,
@@ -291,135 +273,132 @@ export default function CircularGallery({
           depthWrite: false,
         });
 
-        const geo  = new Plane(gl, { width: CARD_W, height: CARD_H, widthSegments: 24 });
+        const geo  = new Plane(gl, { width: CARD_W, height: CARD_H, widthSegments: 30, heightSegments: 1 });
         const mesh = new Mesh(gl, { geometry: geo, program: prog });
-
-        const baseX = i * STEP - ((items.length - 1) * STEP) / 2;
-        mesh.position.x = baseX;
+        // IMPORTANT: mesh stays at origin — shader handles world x
         mesh.setParent(scene);
 
-        return { mesh, prog, item, baseX };
+        const baseX = i * STEP - totalW / 2;
+        return { prog, item: paddedItems[i], baseX };
       });
 
       // ── Scroll state
-      let scrollX    = 0;
-      let targetX    = 0;
-      const maxScroll = ((items.length - 1) * STEP) / 2;
+      let scrollX  = 0;
+      let targetX  = 0;
+      const maxScr = totalW / 2;
 
       // ── Input
-      let pointerDown   = false;
-      let dragStartX    = 0;
-      let dragStartScrl = 0;
-      let dragDelta     = 0;
-      let lastX         = 0;
-      let momentum      = 0;
+      let pDown = false, pStartX = 0, pStartScr = 0, pDelta = 0, pLast = 0, vel = 0;
 
-      const onWheel = (e) => {
+      const cx = e => e.touches ? e.touches[0].clientX : e.clientX;
+
+      const onWheel = e => {
         e.preventDefault();
-        targetX += e.deltaX * 0.005 * scrollSpeed + e.deltaY * 0.003 * scrollSpeed;
-        targetX = Math.max(-maxScroll, Math.min(maxScroll, targetX));
+        targetX += (e.deltaX || e.deltaY) * 0.004 * scrollSpeed;
+        targetX = Math.max(-maxScr, Math.min(maxScr, targetX));
       };
-
-      const getClientX = (e) =>
-        e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
-
-      const onDown = (e) => {
-        pointerDown   = true;
-        dragStartX    = getClientX(e);
-        dragStartScrl = targetX;
-        dragDelta     = 0;
-        lastX         = dragStartX;
-        momentum      = 0;
+      const onDown = e => {
+        pDown = true; pStartX = cx(e); pStartScr = targetX;
+        pDelta = 0; pLast = pStartX; vel = 0;
+        canvas.style.cursor = "grabbing";
       };
-
-      const onMove = (e) => {
-        if (!pointerDown) return;
-        const cx = e.type === "touchmove" ? e.touches[0].clientX : e.clientX;
-        momentum  = cx - lastX;
-        lastX     = cx;
-        dragDelta = Math.abs(cx - dragStartX);
-        targetX   = dragStartScrl + (dragStartX - cx) * 0.005 * scrollSpeed;
-        targetX   = Math.max(-maxScroll, Math.min(maxScroll, targetX));
+      const onMove = e => {
+        if (!pDown) return;
+        const x = cx(e);
+        vel = x - pLast; pLast = x;
+        pDelta = Math.abs(x - pStartX);
+        targetX = pStartScr + (pStartX - x) * 0.0042 * scrollSpeed;
+        targetX = Math.max(-maxScr, Math.min(maxScr, targetX));
       };
-
-      const onUp = (e) => {
-        if (!pointerDown) return;
-        pointerDown = false;
+      const onUp = e => {
+        if (!pDown) return;
+        pDown = false;
+        canvas.style.cursor = "grab";
 
         // Inertia
-        targetX -= momentum * 0.04 * scrollSpeed;
-        targetX  = Math.max(-maxScroll, Math.min(maxScroll, targetX));
+        targetX -= vel * 0.05 * scrollSpeed;
+        targetX = Math.max(-maxScr, Math.min(maxScr, targetX));
 
-        // Click detection: tiny movement = tap
-        if (dragDelta < 6 && onItemClick) {
-          const tapX = e.type === "touchend"
-            ? e.changedTouches[0].clientX
-            : e.clientX;
-          const rect   = gl.canvas.getBoundingClientRect();
-          const ndcX   = ((tapX - rect.left) / rect.width) * 2 - 1;
-          const aspect = gl.canvas.width / gl.canvas.height;
-          const vpH    = 2 * camera.position.z * Math.tan((FOV / 2) * Math.PI / 180);
-          const vpW    = vpH * aspect;
-          const worldX = ndcX * vpW * 0.5;
+        // Tap detection
+        if (pDelta < 7 && onItemClick) {
+          const tapX  = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+          const rect  = canvas.getBoundingClientRect();
+          const ndcX  = ((tapX - rect.left) / rect.width) * 2 - 1;
+          const aspect = canvas.width / canvas.height;
+          const vph   = 2 * camera.position.z * Math.tan((FOV / 2) * Math.PI / 180);
+          const vpw   = vph * aspect;
+          const worldX = ndcX * vpw * 0.5;
 
-          // Find nearest slide to tap world-x
-          let best = null;
-          let bestD = Infinity;
+          // Nearest slide whose world x is close to tap
+          let best = null, bestD = Infinity;
           for (const s of slides) {
             const sx = s.baseX - scrollX;
             const d  = Math.abs(sx - worldX);
             if (d < bestD) { bestD = d; best = s; }
           }
-          if (best && bestD < CARD_W * 0.7) {
+          if (best && bestD < CARD_W * 0.65) {
             onItemClick(best.item);
           }
         }
       };
 
-      gl.canvas.addEventListener("wheel",      onWheel,  { passive: false });
-      gl.canvas.addEventListener("mousedown",  onDown);
-      gl.canvas.addEventListener("touchstart", onDown,   { passive: true });
-      window.addEventListener(   "mousemove",  onMove);
-      window.addEventListener(   "touchmove",  onMove,   { passive: true });
-      window.addEventListener(   "mouseup",    onUp);
-      window.addEventListener(   "touchend",   onUp);
-
-      cleanupFns.push(() => {
-        gl.canvas.removeEventListener("wheel",      onWheel);
-        gl.canvas.removeEventListener("mousedown",  onDown);
-        gl.canvas.removeEventListener("touchstart", onDown);
-        window.removeEventListener(   "mousemove",  onMove);
-        window.removeEventListener(   "touchmove",  onMove);
-        window.removeEventListener(   "mouseup",    onUp);
-        window.removeEventListener(   "touchend",   onUp);
-        if (gl.canvas.parentNode) gl.canvas.parentNode.removeChild(gl.canvas);
-        try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch {}
-      });
+      canvas.addEventListener("wheel",      onWheel, { passive: false });
+      canvas.addEventListener("mousedown",  onDown);
+      canvas.addEventListener("touchstart", onDown, { passive: true });
+      window.addEventListener("mousemove",  onMove);
+      window.addEventListener("touchmove",  onMove, { passive: true });
+      window.addEventListener("mouseup",    onUp);
+      window.addEventListener("touchend",   onUp);
 
       // ── Render loop
-      const loop = () => {
+      const tick = () => {
         if (destroyed) return;
-        raf = requestAnimationFrame(loop);
+        rafId = requestAnimationFrame(tick);
         scrollX += (targetX - scrollX) * scrollEase;
 
         for (const s of slides) {
-          const xPos = s.baseX - scrollX;
-          s.mesh.position.x = xPos;
-          s.prog.uniforms.uOffset.value = xPos;
+          // uOffset = this slide's current world x center
+          s.prog.uniforms.uOffset.value = s.baseX - scrollX;
         }
         renderer.render({ scene, camera });
       };
-      loop();
+      tick();
+
+      // ── Cleanup
+      cleanupRef.current = () => {
+        destroyed = true;
+        if (rafId) cancelAnimationFrame(rafId);
+        ro.disconnect();
+        canvas.removeEventListener("wheel",      onWheel);
+        canvas.removeEventListener("mousedown",  onDown);
+        canvas.removeEventListener("touchstart", onDown);
+        window.removeEventListener("mousemove",  onMove);
+        window.removeEventListener("touchmove",  onMove);
+        window.removeEventListener("mouseup",    onUp);
+        window.removeEventListener("touchend",   onUp);
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+        try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch {}
+      };
     })();
 
     return () => {
       destroyed = true;
-      if (raf) cancelAnimationFrame(raf);
-      for (const fn of cleanupFns) fn();
-      container.dataset.glInit = "";
+      if (rafId) cancelAnimationFrame(rafId);
+      if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
     };
+  // Re-init when item identities change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(items.map(i => i.image + i.text + i.dreamId))]);
+  }, [JSON.stringify(items.map(i => `${i.image}|${i.text}|${i.dreamId}`))]);
+
+  if (items.length === 0) {
+    return (
+      <div className="cg-root flex items-center justify-center">
+        <p style={{ color: "rgba(255,255,255,0.18)", fontSize: 12, letterSpacing: "0.15em" }}>
+          还没有梦境被收入档案。
+        </p>
+      </div>
+    );
+  }
 
   return <div ref={mountRef} className="cg-root" />;
 }
