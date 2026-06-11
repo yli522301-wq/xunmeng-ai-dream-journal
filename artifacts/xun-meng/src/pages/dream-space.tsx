@@ -99,12 +99,7 @@ function getCharConfig(name: string): DreamCharConfig {
 }
 
 // ── Demo messages ──────────────────────────────────────────────────────────
-const DEMO_MESSAGES: ChatMessage[] = [
-  { id: "d0", role: "user",     content: "我梦到自己一直在赶路，但怎么都赶不上。", timestamp: "昨天" },
-  { id: "d1", role: "daoshen", content: "赶路的焦虑梦几乎是潜意识对现实压力的直接映射——你在追什么，或者怕被什么追上？注意梦里「赶不上」的对象：是时间、是人、还是一辆你永远上不去的车。", timestamp: "昨天" },
-  { id: "d2", role: "muge",    content: "你一直在跑，路却像在延伸。那种追不上的感觉，有时候不是在追目标，而是在追一个正在离开的自己。梦把它变成了距离。", timestamp: "昨天" },
-  { id: "d3", role: "anuan",   content: "赶不上的感觉真的很累人。醒来有没有觉得整个人喘不过气？这个梦可能在说，你最近给自己的压力有点大了。", timestamp: "昨天" },
-];
+const DEMO_MESSAGES: ChatMessage[] = [];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function genId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
@@ -353,7 +348,7 @@ export default function DreamSpace() {
     );
   }
 
-  const hasMessages = messages.filter(m => !m.id.startsWith("d")).length > 0 || messages.length > 0;
+  const hasMessages = messages.length > 0;
 
   return (
     <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">

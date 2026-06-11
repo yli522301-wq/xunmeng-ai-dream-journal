@@ -254,20 +254,6 @@ export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange 
                 {turnCount} 轮
               </span>
             )}
-            {/* Character avatar row in handle */}
-            <div className="flex items-center gap-1">
-              {Object.entries(charMap).map(([k, info]) => (
-                <div
-                  key={k}
-                  style={{
-                    width: 8, height: 8, borderRadius: "50%",
-                    backgroundColor: info.particleColor,
-                    opacity: messages.some(m => m.role === k) ? 0.8 : 0.18,
-                    transition: "opacity 0.3s",
-                  }}
-                />
-              ))}
-            </div>
           </div>
           <motion.div animate={{ rotate: isOpen ? 0 : 180 }} transition={{ duration: 0.25 }}>
             <ChevronDown size={14} style={{ color: "rgba(255,255,255,0.18)" }} />
