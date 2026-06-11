@@ -8,6 +8,7 @@ import { Layout } from "./components/layout";
 import DreamSpace from "./pages/dream-space";
 import DreamDetail from "./pages/dream-detail";
 import DreamArchive from "./pages/dream-archive";
+import DreamArchiveList from "./pages/dream-archive-list";
 import DreamLocalDetail from "./pages/dream-local-detail";
 import Settings from "./pages/settings";
 import CharacterNew from "./pages/character-new";
@@ -24,6 +25,7 @@ function Router() {
         <Route path="/dreams" component={DreamsList} />
         <Route path="/dream/:id" component={DreamDetail} />
         <Route path="/archive" component={DreamArchive} />
+        <Route path="/archive/list" component={DreamArchiveList} />
         <Route path="/archive/:id" component={DreamLocalDetail} />
         <Route path="/settings" component={Settings} />
         <Route path="/characters/new" component={CharacterNew} />
