@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles, Mic, ImageIcon, Type } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
 
 export const DREAMS_STORAGE_KEY = "xm-saved-dreams";
@@ -18,9 +18,9 @@ export interface SavedDream {
 }
 
 const CHAR_STYLES: Record<string, { name: string; enName: string; hsl: string; dot: string }> = {
-  daoshen: { name: "岛深", enName: "Daoshan", hsl: "185 70% 55%",  dot: "#6B8CFF" },
-  muge:    { name: "暮歌", enName: "Muge",    hsl: "240 70% 65%",  dot: "#9B7CFF" },
-  anuan:   { name: "阿暖", enName: "Anuan",   hsl: "38 90% 60%",   dot: "#F2A84B" },
+  daoshen: { name: "岛深", enName: "Daoshan", hsl: "185 70% 55%", dot: "#6B8CFF" },
+  muge:    { name: "暮歌", enName: "Muge",    hsl: "240 70% 65%", dot: "#9B7CFF" },
+  anuan:   { name: "阿暖", enName: "Anuan",   hsl: "38 90% 60%",  dot: "#F2A84B" },
 };
 
 function formatDate(iso: string) {
@@ -28,6 +28,14 @@ function formatDate(iso: string) {
     const d = new Date(iso);
     return `${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   } catch { return ""; }
+}
+
+function detectContentTypes(messages: ChatMessage[]) {
+  const userMsgs = messages.filter(m => m.role === "user");
+  const hasAudio  = userMsgs.some(m => m.type === "audio");
+  const hasImage  = userMsgs.some(m => m.type === "image" || !!m.imageUrl);
+  const hasText   = userMsgs.some(m => (m.type === "text" || !m.type) && m.content && m.content !== "[图片]");
+  return { hasAudio, hasImage, hasText };
 }
 
 export default function DreamArchive() {
@@ -133,9 +141,7 @@ function EmptyState() {
 }
 
 function DreamCard({
-  dream,
-  index,
-  onClick,
+  dream, index, onClick,
 }: {
   dream: SavedDream;
   index: number;
@@ -143,6 +149,7 @@ function DreamCard({
 }) {
   const cs = CHAR_STYLES[dream.activeCharacter] ?? CHAR_STYLES.daoshen;
   const hasCover = !!dream.coverImage;
+  const { hasAudio, hasImage, hasText } = detectContentTypes(dream.messages);
 
   return (
     <motion.div
@@ -153,7 +160,7 @@ function DreamCard({
       className="group relative rounded-3xl overflow-hidden cursor-pointer select-none"
       style={{
         border: `1px solid hsl(${cs.hsl} / 0.12)`,
-        boxShadow: `0 2px 20px hsl(${cs.hsl} / 0.04), 0 0 0 0 hsl(${cs.hsl} / 0)`,
+        boxShadow: `0 2px 20px hsl(${cs.hsl} / 0.04)`,
       }}
       whileHover={{ scale: 1.01, transition: { duration: 0.18 } }}
       whileTap={{ scale: 0.985 }}
@@ -176,10 +183,26 @@ function DreamCard({
         ) : (
           <div
             className="w-full h-full relative"
-            style={{
-              background: `linear-gradient(140deg, hsl(${cs.hsl} / 0.14) 0%, rgba(5,5,10,1) 70%)`,
-            }}
+            style={{ background: `linear-gradient(140deg, hsl(${cs.hsl} / 0.14) 0%, rgba(5,5,10,1) 70%)` }}
           >
+            {/* Audio visual element when no image but has audio */}
+            {hasAudio && !hasImage && (
+              <div className="absolute inset-0 flex items-center justify-center opacity-10">
+                <div className="flex items-end gap-1.5" style={{ height: 40 }}>
+                  {[6, 14, 9, 20, 12, 18, 8, 16, 10, 22, 8, 15, 6].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-1.5 rounded-full"
+                      style={{
+                        height: h,
+                        background: `hsl(${cs.hsl})`,
+                        opacity: 0.6 + (i % 3) * 0.15,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             <div
               className="absolute top-2 right-4 w-32 h-32 rounded-full opacity-25"
               style={{ background: `radial-gradient(circle at 40% 38%, hsl(${cs.hsl} / 0.55), transparent 62%)` }}
@@ -190,10 +213,6 @@ function DreamCard({
                 background: `radial-gradient(circle at 38% 35%, hsl(${cs.hsl} / 0.18), transparent)`,
                 border: `1px solid hsl(${cs.hsl} / 0.16)`,
               }}
-            />
-            <div
-              className="absolute top-11 right-[58px] w-6 h-6 rounded-full"
-              style={{ background: `hsl(${cs.hsl} / 0.10)`, border: `1px solid hsl(${cs.hsl} / 0.10)` }}
             />
           </div>
         )}
@@ -207,9 +226,28 @@ function DreamCard({
           <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.20)" }}>{cs.enName}</span>
         </div>
 
-        {/* Date */}
-        <div className="absolute top-3.5 right-4">
-          <span className="text-[9px] tabular-nums tracking-wide" style={{ color: "rgba(255,255,255,0.22)" }}>
+        {/* Content type icons */}
+        <div className="absolute top-3.5 right-4 flex items-center gap-1.5">
+          {hasAudio && (
+            <div className="w-5 h-5 rounded-full flex items-center justify-center"
+              style={{ background: `hsl(${cs.hsl} / 0.15)`, border: `1px solid hsl(${cs.hsl} / 0.20)` }}>
+              <Mic size={9} style={{ color: `hsl(${cs.hsl})` }} />
+            </div>
+          )}
+          {hasImage && (
+            <div className="w-5 h-5 rounded-full flex items-center justify-center"
+              style={{ background: `hsl(${cs.hsl} / 0.15)`, border: `1px solid hsl(${cs.hsl} / 0.20)` }}>
+              <ImageIcon size={9} style={{ color: `hsl(${cs.hsl})` }} />
+            </div>
+          )}
+          {hasText && !hasAudio && !hasImage && (
+            <div className="w-5 h-5 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <Type size={9} style={{ color: "rgba(255,255,255,0.30)" }} />
+            </div>
+          )}
+          {/* Date */}
+          <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.20)" }}>
             {formatDate(dream.createdAt)}
           </span>
         </div>
@@ -220,12 +258,10 @@ function DreamCard({
         className="relative px-5 py-4"
         style={{ background: "linear-gradient(to bottom, rgba(5,5,10,0.96), rgba(8,8,16,0.99))" }}
       >
-        {/* Left accent bar */}
         <div
           className="absolute left-0 top-4 bottom-4 w-[2px] rounded-r-full"
           style={{ background: `linear-gradient(to bottom, hsl(${cs.hsl} / 0.55), transparent)` }}
         />
-
         <h3
           className="text-[15px] font-serif tracking-wide mb-1.5 pr-6 leading-snug"
           style={{ color: "rgba(255,255,255,0.84)" }}
@@ -244,16 +280,11 @@ function DreamCard({
         >
           {dream.summary}
         </p>
-
-        {/* Arrow on hover */}
         <div
-          className="absolute right-4 bottom-4 transition-all duration-200 opacity-0 group-hover:opacity-100"
-          style={{ color: `hsl(${cs.hsl})`, transform: "translateX(-2px)" }}
+          className="absolute right-4 bottom-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          style={{ color: `hsl(${cs.hsl})` }}
         >
-          <motion.span
-            className="text-[13px]"
-            whileHover={{ x: 2 }}
-          >→</motion.span>
+          <span className="text-[13px]">→</span>
         </div>
       </div>
 

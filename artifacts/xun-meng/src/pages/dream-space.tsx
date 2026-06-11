@@ -26,8 +26,12 @@ const FALLBACK_TRANSCRIPT = "我梦到自己一直在赶路，但怎么都赶不
 export interface ChatMessage {
   id: string;
   role: "user" | CharKey;
+  type?: "text" | "image" | "audio";
   content: string;
   imageUrl?: string;
+  audioUrl?: string;
+  audioDuration?: number;
+  transcription?: string;
   timestamp: string;
 }
 
@@ -217,13 +221,17 @@ export default function DreamSpace() {
   const [bgMusicName,    setBgMusicName]    = useState("");
   const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const [bgMusicVolume,  setBgMusicVolume]  = useState(0.3);
-  const bgAudioRef      = useRef<HTMLAudioElement | null>(null);
-  const bgMusicInputRef = useRef<HTMLInputElement>(null);
+  const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
+  const bgMusicInputRef     = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef    = useRef<MediaRecorder | null>(null);
+  const audioChunksRef      = useRef<Blob[]>([]);
+  const audioRecordStartRef = useRef<number>(0);
+  const pendingTranscriptRef = useRef<string | null>(null);
 
   // Use a ref for voiceStatus so recognition callbacks never see stale state
   const voiceStatusRef       = useRef<VoiceStatus>("idle");
   const transcriptRef        = useRef<string | null>(null);
-  const handleSendRef        = useRef<(text?: string) => Promise<void>>(async () => {});
+  const handleSendRef        = useRef<(text?: string, voiceData?: { audioUrl?: string; duration?: number }) => Promise<void>>(async () => {});
   const requestingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingIntervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -257,7 +265,8 @@ export default function DreamSpace() {
   const voiceStatus   = voiceStatusS;
   const isListening   = voiceStatus === "recording"; // for CompanionOrb / AudioWaveform
 
-  const [atmosphereOpen, setAtmosphereOpen] = useState(false);
+  const [atmosphereOpen,   setAtmosphereOpen]   = useState(false);
+  const [showSaveConfirm,  setShowSaveConfirm]  = useState(false);
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
   const [ambientSound,   setAmbientSound]   = useState<AmbientSoundType>("none");
   const [music,          setMusic]          = useState<MusicType>("none");
@@ -320,17 +329,20 @@ export default function DreamSpace() {
 
     r.onend = () => {
       const prev = voiceStatusRef.current;
-      // If already idle/error, do nothing (onerror handled it)
       if (prev === "idle" || prev === "error") return;
       const text = transcriptRef.current;
       transcriptRef.current = null;
-      setVoiceStatus("idle");
-      if (text && text.trim()) {
-        toast({ title: "已经听见了你的梦。" });
-        setTimeout(() => handleSendRef.current(text.trim()), 200);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        pendingTranscriptRef.current = text;
+        setVoiceStatus("processing");
+        mediaRecorderRef.current.stop();
       } else {
-        toast({ title: "我没有听清楚，已为你使用示例梦境继续。" });
-        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+        setVoiceStatus("idle");
+        if (text && text.trim()) {
+          setTimeout(() => handleSendRef.current(text.trim()), 200);
+        } else {
+          setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+        }
       }
     };
 
@@ -414,10 +426,10 @@ export default function DreamSpace() {
   }, [characters]);
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const handleSend = async (text?: string) => {
+  const handleSend = async (text?: string, voiceData?: { audioUrl?: string; duration?: number }) => {
     const msg = (text ?? inputText).trim();
     const imgUrl = text ? null : pendingImageDataUrl;
-    if (!msg && !imgUrl) return;
+    if (!msg && !imgUrl && !voiceData) return;
     if (!activeChar) return;
     setInputText("");
     if (!text) setPendingImageDataUrl(null);
@@ -426,8 +438,12 @@ export default function DreamSpace() {
 
     const userMsg: ChatMessage = {
       id: genId(), role: "user",
+      type: voiceData ? "audio" : (imgUrl ? "image" : "text"),
       content: msg || (imgUrl ? "[图片]" : ""),
       imageUrl: imgUrl ?? undefined,
+      audioUrl: voiceData?.audioUrl,
+      audioDuration: voiceData?.duration,
+      transcription: voiceData ? (msg || undefined) : undefined,
       timestamp: nowTime(),
     };
     const updatedMsgs = [...messages, userMsg];
@@ -488,6 +504,48 @@ export default function DreamSpace() {
 
     // Start real recording
     setVoiceStatus("requesting");
+
+    // Start MediaRecorder alongside SpeechRecognition for audio capture
+    audioChunksRef.current = [];
+    audioRecordStartRef.current = Date.now();
+    if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+            : MediaRecorder.isTypeSupported("audio/ogg") ? "audio/ogg" : "";
+          const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+          mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+          mr.onstop = () => {
+            stream.getTracks().forEach(t => t.stop());
+            const transcript = pendingTranscriptRef.current ?? "";
+            pendingTranscriptRef.current = null;
+            const duration = Math.max(1, Math.round((Date.now() - audioRecordStartRef.current) / 1000));
+            const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
+            audioChunksRef.current = [];
+            mediaRecorderRef.current = null;
+            if (blob.size > 1.5 * 1024 * 1024) {
+              setVoiceStatus("idle");
+              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT);
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+              setVoiceStatus("idle");
+              const audioUrl = reader.result as string;
+              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT, { audioUrl, duration });
+            };
+            reader.onerror = () => {
+              setVoiceStatus("idle");
+              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT);
+            };
+            reader.readAsDataURL(blob);
+          };
+          mediaRecorderRef.current = mr;
+          mr.start();
+        })
+        .catch(() => { mediaRecorderRef.current = null; });
+    }
+
     // Safety net: if onstart never fires within 3s, fall back to mock
     requestingTimeoutRef.current = setTimeout(() => {
       if (voiceStatusRef.current === "requesting") {
@@ -565,8 +623,14 @@ export default function DreamSpace() {
       toast({ title: "先说一点梦的内容，再保存。" });
       return;
     }
+    setShowSaveConfirm(true);
+  };
+
+  const confirmSave = () => {
+    setShowSaveConfirm(false);
+    const userMessages = messages.filter(m => m.role === "user");
     const firstUser = userMessages[0].content;
-    const title = firstUser === "[图片]"
+    const title = firstUser === "[图片]" || firstUser === ""
       ? "一段无言的梦"
       : firstUser.slice(0, 14) + (firstUser.length > 14 ? "…" : "");
     const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
@@ -587,8 +651,7 @@ export default function DreamSpace() {
       const existing: unknown[] = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]");
       existing.push(dream);
       localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(existing));
-      toast({ title: "这段梦，已收入档案。" });
-      setTimeout(() => setLocation("/archive"), 600);
+      setLocation("/archive");
     } catch {
       toast({ title: "保存失败", variant: "destructive" });
     }
@@ -1066,6 +1129,91 @@ export default function DreamSpace() {
         preload="none"
         style={{ display: "none" }}
       />
+
+      {/* ── Save confirmation modal ── */}
+      <AnimatePresence>
+        {showSaveConfirm && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(5,5,10,0.74)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setShowSaveConfirm(false)}
+          >
+            <motion.div
+              className="mx-5 max-w-xs w-full overflow-hidden"
+              style={{
+                background: "rgba(10,10,22,0.96)",
+                border: `1px solid hsl(${hsl} / 0.20)`,
+                backdropFilter: "blur(28px)",
+                WebkitBackdropFilter: "blur(28px)",
+                borderRadius: "28px",
+                boxShadow: `0 12px 48px rgba(0,0,0,0.60), 0 0 0 1px hsl(${hsl} / 0.06)`,
+              }}
+              initial={{ opacity: 0, scale: 0.88, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 10 }}
+              transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div
+                className="h-[2px]"
+                style={{ background: `linear-gradient(to right, transparent, hsl(${hsl} / 0.55), transparent)` }}
+              />
+              <div className="px-7 py-7 flex flex-col items-center text-center gap-5">
+                <motion.div
+                  className="w-11 h-11 rounded-full flex items-center justify-center"
+                  style={{
+                    background: `radial-gradient(circle at 38% 35%, hsl(${hsl} / 0.22), hsl(${hsl} / 0.05))`,
+                    border: `1px solid hsl(${hsl} / 0.22)`,
+                  }}
+                  animate={{ scale: [1, 1.06, 1] }}
+                  transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <Sparkles size={15} style={{ color: `hsl(${hsl})`, opacity: 0.80 }} />
+                </motion.div>
+                <div>
+                  <h3
+                    className="text-[15px] font-serif tracking-wide mb-2.5 leading-snug"
+                    style={{ color: "rgba(255,255,255,0.88)" }}
+                  >
+                    要把这段梦收入档案吗？
+                  </h3>
+                  <p className="text-[12px] leading-relaxed" style={{ color: "rgba(255,255,255,0.26)" }}>
+                    你可以保存它，也可以让它<br />只停留在这次对话里。
+                  </p>
+                </div>
+                <div className="w-full flex flex-col gap-2.5">
+                  <motion.button
+                    onClick={confirmSave}
+                    className="w-full py-3.5 rounded-[18px] text-[13px] tracking-wide"
+                    style={{
+                      background: `linear-gradient(135deg, hsl(${hsl} / 0.22) 0%, hsl(${hsl} / 0.08) 100%)`,
+                      border: `1px solid hsl(${hsl} / 0.32)`,
+                      color: `hsl(${hsl})`,
+                    }}
+                    whileHover={{ opacity: 0.88 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    收入档案
+                  </motion.button>
+                  <button
+                    onClick={() => setShowSaveConfirm(false)}
+                    className="w-full py-2.5 rounded-[18px] text-[12px] tracking-wider"
+                    style={{ color: "rgba(255,255,255,0.20)" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.45)")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.20)")}
+                  >
+                    暂不保存
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Mic } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -120,6 +120,22 @@ function MessageBubble({
             color: "rgba(255,255,255,0.68)",
           }}
         >
+          {msg.type === "audio" && (
+            <div
+              className="flex items-center gap-1.5 mb-1.5 pb-1.5"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+            >
+              <Mic size={10} style={{ color: "rgba(255,255,255,0.30)", flexShrink: 0 }} />
+              <span className="text-[9px] tracking-wide" style={{ color: "rgba(255,255,255,0.28)" }}>
+                语音消息
+              </span>
+              {msg.audioDuration != null && (
+                <span className="ml-auto text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.20)" }}>
+                  {String(Math.floor(msg.audioDuration / 60)).padStart(2, "0")}:{String(msg.audioDuration % 60).padStart(2, "0")}
+                </span>
+              )}
+            </div>
+          )}
           {msg.imageUrl && (
             <img
               src={msg.imageUrl}
@@ -128,7 +144,7 @@ function MessageBubble({
               style={{ maxHeight: "160px", objectFit: "cover", display: "block" }}
             />
           )}
-          {msg.content !== "[图片]" && (
+          {msg.content !== "[图片]" && msg.content !== "" && (
             <p className="whitespace-pre-wrap">{msg.content}</p>
           )}
           <p className="mt-1 text-[9px] tracking-wider text-right" style={{ color: "rgba(255,255,255,0.18)" }}>
