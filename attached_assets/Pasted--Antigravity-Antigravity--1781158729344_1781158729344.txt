@@ -1,0 +1,115 @@
+现在 Antigravity 粒子效果已经接入了，但鼠标交互不明显，点击/移动后没有原版那种“鼠标走到哪里，哪里被紫色磁场点亮”的效果。请只针对 Antigravity 背景做交互增强和视觉增强，不要改动其他页面功能。
+
+修改目标：
+1. 鼠标移动到哪里，Antigravity 粒子环要跟随到哪里。
+2. 鼠标附近要出现柔和紫色光晕，形成“局部被点亮”的效果。
+3. 粒子要比现在更亮、更明显、更有动态感。
+4. 不要影响页面上的按钮、输入框、录音按钮、聊天框点击。
+5. 保持整体梦境感，不要做成太刺眼的赛博风。
+
+请检查并修改：
+
+一、检查背景层 CSS
+如果 DreamAntigravityBackground 或 antigravity canvas 外层写了 pointer-events: none，请不要让它导致 Canvas 无法接收鼠标移动。
+要求：
+- 背景层可以接收鼠标移动，用于驱动粒子和光晕。
+- 页面内容层仍然可以正常点击。
+- 内容层 z-index 高于背景层。
+- 背景层 z-index 低于内容层。
+
+推荐结构：
+.dream-antigravity-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.dream-content,
+.app-content,
+.main-content {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+二、给 DreamAntigravityBackground 增加鼠标光晕
+在 DreamAntigravityBackground 组件里监听 onMouseMove，保存鼠标在容器中的百分比位置：
+--mouse-x
+--mouse-y
+
+然后用一个绝对定位的 div 做光晕层：
+.dream-cursor-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(139, 92, 255, 0.28) 0%,
+      rgba(139, 92, 255, 0.16) 12%,
+      rgba(139, 92, 255, 0.06) 26%,
+      transparent 45%);
+  mix-blend-mode: screen;
+  transition: background 0.08s linear;
+  z-index: 1;
+}
+
+三、增强 Antigravity 参数
+把当前参数调整为：
+
+<Antigravity
+  count={isMobile ? 160 : 280}
+  magnetRadius={8}
+  ringRadius={8}
+  waveSpeed={0.55}
+  waveAmplitude={1.35}
+  particleSize={isMobile ? 1.5 : 1.9}
+  lerpSpeed={0.075}
+  color="#8B5CFF"
+  autoAnimate
+  particleVariance={1.25}
+  rotationSpeed={0.05}
+  depthFactor={1.15}
+  pulseSpeed={3.6}
+  particleShape="capsule"
+  fieldStrength={12}
+/>
+
+四、增强粒子材质亮度
+在 Antigravity.jsx 里把 material 从：
+
+<meshBasicMaterial color={color} />
+
+改成更亮的写法：
+
+<meshBasicMaterial
+  color={color}
+  transparent
+  opacity={0.95}
+  toneMapped={false}
+/>
+
+如果可以，请给 Canvas 加 gl 配置：
+<Canvas
+  camera={{ position: [0, 0, 50], fov: 35 }}
+  gl={{ antialias: true, alpha: true }}
+>
+
+五、背景整体稍微提亮
+不要改成纯黑。保持深紫梦境背景，但让粒子周围更明显：
+background:
+  radial-gradient(circle at 50% 35%, rgba(91, 70, 220, 0.22), transparent 32%),
+  radial-gradient(circle at 50% 72%, rgba(124, 92, 255, 0.14), transparent 38%),
+  linear-gradient(180deg, #070716 0%, #0b0820 45%, #05040c 100%);
+
+六、不要改动：
+- 顶部导航
+- 星球
+- 录音按钮
+- 聊天框逻辑
+- AI 对话逻辑
+- 背景音乐逻辑
+
+只增强 Antigravity 背景的鼠标交互、光晕和粒子视觉。
+完成后请确保没有 console 报错，移动端不卡顿。
