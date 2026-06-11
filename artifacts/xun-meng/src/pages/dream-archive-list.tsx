@@ -1,18 +1,19 @@
 /**
- * 梦境档案列表 — /archive/list
+ * 全部梦境 — /archive/list
  *
- * 按日期分组展示卡片，支持日历筛选。
- * 顶部"回忆走廊"按钮返回 /archive（圆形画廊）。
+ * ChromaGrid 网格展示所有梦境档案，支持日历日期筛选。
+ * 左上角返回"梦境回忆走廊"（/archive）。
  */
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Sparkles, Mic, ImageIcon, CalendarDays,
-  ChevronLeft, ChevronRight, X, GalleryHorizontal,
+  ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, X, Sparkles,
 } from "lucide-react";
-import type { ChatMessage, CharKey } from "@/pages/dream-space";
+import type { CharKey } from "@/pages/dream-space";
 import { DREAMS_STORAGE_KEY, type SavedDream, CS } from "@/pages/dream-archive";
+// @ts-ignore — JSX component
+import ChromaGrid from "@/components/ChromaGrid.jsx";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -32,59 +33,12 @@ function fmtArchiveDate(iso: string) {
   } catch { return { date: "", time: "" }; }
 }
 
-function fmtGroupLabel(dateKey: string) {
-  try {
-    const [y, m, d] = dateKey.split("-").map(Number);
-    const weekNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-    const wd = new Date(y, m - 1, d).getDay();
-    return `${y}年${m}月${d}日  ${weekNames[wd]}`;
-  } catch { return dateKey; }
-}
-
 function getDaysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate(); }
 function getFirstWeekday(y: number, m: number) { return new Date(y, m - 1, 1).getDay(); }
 
-function detectTypes(messages: ChatMessage[]) {
-  const u = messages.filter(m => m.role === "user");
-  return {
-    hasAudio: u.some(m => m.type === "audio"),
-    hasImage: u.some(m => m.type === "image" || !!m.imageUrl),
-  };
-}
-
-type CardVariant = "large" | "medium" | "compact";
-
-function getVariant(dream: SavedDream): CardVariant {
-  if (dream.coverImage) return "large";
-  const { hasAudio } = detectTypes(dream.messages);
-  if (hasAudio) return "medium";
-  if (dream.summary.length < 45) return "compact";
-  return "medium";
-}
-
-// ── 3-D tilt hook ────────────────────────────────────────────────────────────
-function useTilt(intensity = 6) {
-  const [t, setT] = useState({ x: 0, y: 0 });
-  const onMouseMove = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const cx = (e.clientX - r.left) / r.width - 0.5;
-    const cy = (e.clientY - r.top) / r.height - 0.5;
-    setT({ x: -cy * intensity, y: cx * (intensity * 1.2) });
-  }, [intensity]);
-  const onMouseLeave = useCallback(() => setT({ x: 0, y: 0 }), []);
-  const style: React.CSSProperties = {
-    transform: `perspective(700px) rotateX(${t.x}deg) rotateY(${t.y}deg)`,
-    transition: "transform 0.18s ease",
-  };
-  return { onMouseMove, onMouseLeave, tiltStyle: style };
-}
-
 // ── Calendar Panel ────────────────────────────────────────────────────────────
 function CalendarPanel({
-  dreamsByDate,
-  selectedDate,
-  onSelect,
-  onClose,
+  dreamsByDate, selectedDate, onSelect, onClose,
 }: {
   dreamsByDate: Record<string, SavedDream[]>;
   selectedDate: string | null;
@@ -111,10 +65,8 @@ function CalendarPanel({
     <>
       <motion.div
         className="fixed inset-0 z-40"
-        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(5px)" }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         transition={{ duration: 0.18 }}
         onClick={onClose}
       />
@@ -132,13 +84,15 @@ function CalendarPanel({
             background: "rgba(8,8,20,0.98)",
             border: "1px solid rgba(255,255,255,0.09)",
             backdropFilter: "blur(40px)",
-            boxShadow: "0 24px 60px rgba(0,0,0,0.70), 0 0 0 1px rgba(107,140,255,0.06)",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.70)",
           }}>
+
+          {/* Month nav */}
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <button onClick={prev}
               className="w-8 h-8 flex items-center justify-center rounded-full"
               style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.40)" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
               <ChevronLeft size={15} />
             </button>
@@ -148,24 +102,26 @@ function CalendarPanel({
             <button onClick={next}
               className="w-8 h-8 flex items-center justify-center rounded-full"
               style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.40)" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
               <ChevronRight size={15} />
             </button>
           </div>
 
+          {/* Weekday headers */}
           <div className="grid grid-cols-7 px-3 pb-1">
             {WEEKDAYS.map(w => (
               <div key={w} className="text-center text-[10px] tracking-widest py-1"
-                style={{ color: "rgba(255,255,255,0.22)" }}>{w}</div>
+                style={{ color: "rgba(255,255,255,0.20)" }}>{w}</div>
             ))}
           </div>
 
+          {/* Days grid */}
           <div className="grid grid-cols-7 px-3 pb-4 gap-y-1">
             {cells.map((day, i) => {
               if (!day) return <div key={i} />;
-              const key     = `${cal.year}-${String(cal.month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-              const dreams  = dreamsByDate[key] ?? [];
+              const key = `${cal.year}-${String(cal.month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+              const dreams    = dreamsByDate[key] ?? [];
               const hasDreams = dreams.length > 0;
               const isToday   = key === todayStr;
               const isSel     = key === selectedDate;
@@ -203,6 +159,7 @@ function CalendarPanel({
             })}
           </div>
 
+          {/* Footer */}
           <div className="flex items-center justify-center gap-3 pb-4 pt-1 border-t"
             style={{ borderColor: "rgba(255,255,255,0.05)" }}>
             {selectedDate && (
@@ -214,7 +171,7 @@ function CalendarPanel({
             )}
             <button onClick={onClose}
               className="text-[10px] tracking-wide px-3 py-1.5 rounded-full"
-              style={{ color: "rgba(255,255,255,0.20)" }}>
+              style={{ color: "rgba(255,255,255,0.22)" }}>
               关闭
             </button>
           </div>
@@ -224,260 +181,27 @@ function CalendarPanel({
   );
 }
 
-// ── Date group header ─────────────────────────────────────────────────────────
-function DateGroupHeader({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="flex items-center gap-3 mt-8 mb-3 first:mt-0">
-      <span className="text-[10px] tracking-[0.22em] flex-shrink-0"
-        style={{ color: "rgba(255,255,255,0.28)" }}>{label}</span>
-      <div className="h-px flex-1 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-      <span className="text-[9px] flex-shrink-0 tabular-nums" style={{ color: "rgba(255,255,255,0.16)" }}>
-        {count}段
-      </span>
-    </div>
-  );
-}
-
-// ── Large card ────────────────────────────────────────────────────────────────
-function LargeCard({ dream, index, onClick }: { dream: SavedDream; index: number; onClick: () => void }) {
-  const cs = CS[dream.activeCharacter] ?? CS.daoshen;
-  const { hasAudio, hasImage } = detectTypes(dream.messages);
-  const { date, time } = fmtArchiveDate(dream.createdAt);
-  const { onMouseMove, onMouseLeave, tiltStyle } = useTilt(4);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 22 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.48, delay: index * 0.06, ease: [0.23, 1, 0.32, 1] }}
-      onClick={onClick}
-      onMouseMove={onMouseMove}
-      onMouseLeave={onMouseLeave}
-      style={tiltStyle}
-      className="group relative rounded-3xl overflow-hidden cursor-pointer select-none"
-      whileHover={{ y: -3, transition: { duration: 0.2 } } as any}
-      whileTap={{ scale: 0.985 } as any}
-    >
-      <div className="relative h-52 overflow-hidden">
-        <img src={dream.coverImage} alt="" className="w-full h-full object-cover"
-          style={{ filter: "brightness(0.52) saturate(0.80)" }} />
-        <div className="absolute inset-0"
-          style={{ background: "linear-gradient(to bottom, rgba(5,5,10,0.15) 0%, rgba(5,5,10,0.92) 100%)" }} />
-        <div className="absolute top-4 left-4 flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cs.dot }} />
-          <span className="text-[10px] tracking-[0.16em]" style={{ color: cs.dot, opacity: 0.90 }}>{cs.name}</span>
-          <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.25)" }}>{cs.enName}</span>
-        </div>
-        <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
-          <span className="text-[10px] tabular-nums font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>{date}</span>
-          <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.30)" }}>{time}</span>
-          <div className="flex gap-1.5 mt-0.5">
-            {hasAudio && <Mic size={9} style={{ color: `hsl(${cs.hsl} / 0.65)` }} />}
-            {hasImage && <ImageIcon size={9} style={{ color: `hsl(${cs.hsl} / 0.65)` }} />}
-          </div>
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
-          <h3 className="text-[18px] font-serif tracking-wide leading-snug"
-            style={{ color: "rgba(255,255,255,0.90)" }}>{dream.title}</h3>
-        </div>
-      </div>
-      <div className="relative px-5 py-3.5"
-        style={{ background: "linear-gradient(to bottom, rgba(5,5,10,0.96), rgba(8,8,16,0.99))" }}>
-        <div className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full"
-          style={{ background: `linear-gradient(to bottom, hsl(${cs.hsl} / 0.50), transparent)` }} />
-        <p className="text-[12px] leading-relaxed"
-          style={{ color: "rgba(255,255,255,0.32)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
-          {dream.summary}
-        </p>
-      </div>
-      <div className="absolute inset-0 rounded-3xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ boxShadow: `inset 0 0 0 1px hsl(${cs.hsl} / 0.28)` }} />
-    </motion.div>
-  );
-}
-
-// ── Medium card ───────────────────────────────────────────────────────────────
-function MediumCard({ dream, index, onClick }: { dream: SavedDream; index: number; onClick: () => void }) {
-  const cs = CS[dream.activeCharacter] ?? CS.daoshen;
-  const { hasAudio } = detectTypes(dream.messages);
-  const { date, time } = fmtArchiveDate(dream.createdAt);
-  const { onMouseMove, onMouseLeave, tiltStyle } = useTilt(5);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.44, delay: index * 0.055, ease: [0.23, 1, 0.32, 1] }}
-      onClick={onClick}
-      onMouseMove={onMouseMove}
-      onMouseLeave={onMouseLeave}
-      style={tiltStyle}
-      className="group relative rounded-3xl overflow-hidden cursor-pointer select-none"
-      whileHover={{ y: -3, transition: { duration: 0.2 } } as any}
-      whileTap={{ scale: 0.985 } as any}
-    >
-      <div className="relative h-28 overflow-hidden"
-        style={{ background: `linear-gradient(140deg, hsl(${cs.hsl} / 0.16) 0%, rgba(5,5,10,0.95) 72%)` }}>
-        <motion.div
-          className="absolute top-2 right-8 w-24 h-24 rounded-full opacity-[0.22]"
-          style={{ background: `radial-gradient(circle at 40% 38%, hsl(${cs.hsl} / 0.7), transparent 62%)` }}
-          animate={{ scale: [1, 1.05, 1], opacity: [0.20, 0.28, 0.20] }}
-          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }} />
-        {hasAudio && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-[0.12]">
-            <div className="flex items-end gap-1.5" style={{ height: 36 }}>
-              {[5,13,8,18,11,20,7,15,9,19,7,13,5].map((h, i) => (
-                <motion.div key={i} className="w-[2px] rounded-full flex-shrink-0"
-                  style={{ height: h, background: `hsl(${cs.hsl})` }}
-                  animate={{ height: [h, h * 0.4, h * 1.3, h * 0.6, h] }}
-                  transition={{ duration: 1.8 + i * 0.12, repeat: Infinity, ease: "easeInOut", delay: i * 0.08 }} />
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="absolute top-4 left-4 flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cs.dot }} />
-          <span className="text-[10px] tracking-[0.14em]" style={{ color: cs.dot, opacity: 0.88 }}>{cs.name}</span>
-        </div>
-        <div className="absolute top-4 right-4 text-right">
-          <div className="text-[10px] tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>{date}</div>
-          <div className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>{time}</div>
-        </div>
-        <div className="absolute bottom-0 left-4 right-4 pb-2.5">
-          <h3 className="text-[15px] font-serif tracking-wide leading-snug"
-            style={{ color: "rgba(255,255,255,0.85)" }}>{dream.title}</h3>
-        </div>
-      </div>
-      <div className="relative px-4 py-3" style={{ background: "rgba(8,8,18,0.98)" }}>
-        <div className="absolute left-0 top-2 bottom-2 w-[2px] rounded-r-full"
-          style={{ background: `linear-gradient(to bottom, hsl(${cs.hsl} / 0.40), transparent)` }} />
-        <p className="text-[11px] leading-relaxed"
-          style={{ color: "rgba(255,255,255,0.28)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
-          {dream.summary}
-        </p>
-        {hasAudio && (
-          <div className="flex items-center gap-1.5 mt-2">
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
-              style={{ background: `hsl(${cs.hsl} / 0.10)`, border: `1px solid hsl(${cs.hsl} / 0.15)` }}>
-              <Mic size={8} style={{ color: `hsl(${cs.hsl} / 0.70)` }} />
-              <span className="text-[9px]" style={{ color: `hsl(${cs.hsl} / 0.55)` }}>语音</span>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="absolute inset-0 rounded-3xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ boxShadow: `inset 0 0 0 1px hsl(${cs.hsl} / 0.22)` }} />
-    </motion.div>
-  );
-}
-
-// ── Compact card ──────────────────────────────────────────────────────────────
-function CompactCard({ dream, index, onClick }: { dream: SavedDream; index: number; onClick: () => void }) {
-  const cs = CS[dream.activeCharacter] ?? CS.daoshen;
-  const { date, time } = fmtArchiveDate(dream.createdAt);
-  const { onMouseMove, onMouseLeave, tiltStyle } = useTilt(6);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.38, delay: index * 0.05, ease: [0.23, 1, 0.32, 1] }}
-      onClick={onClick}
-      onMouseMove={onMouseMove}
-      onMouseLeave={onMouseLeave}
-      style={{ ...tiltStyle, border: `1px solid hsl(${cs.hsl} / 0.10)` }}
-      className="group relative rounded-2xl overflow-hidden cursor-pointer select-none flex items-stretch"
-      whileHover={{ y: -2, transition: { duration: 0.18 } } as any}
-      whileTap={{ scale: 0.985 } as any}
-    >
-      <div className="flex-shrink-0 w-14 flex flex-col items-center justify-center gap-1.5 relative"
-        style={{ background: `linear-gradient(180deg, hsl(${cs.hsl} / 0.14) 0%, rgba(5,5,10,0.70) 100%)` }}>
-        <motion.div className="w-8 h-8 rounded-full flex items-center justify-center"
-          style={{
-            background: `radial-gradient(circle at 38% 35%, hsl(${cs.hsl} / 0.30), hsl(${cs.hsl} / 0.06))`,
-            border: `1px solid hsl(${cs.hsl} / 0.20)`,
-          }}
-          animate={{ scale: [1, 1.06, 1] }}
-          transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}>
-          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cs.dot, opacity: 0.70 }} />
-        </motion.div>
-        <span className="text-[7px] tracking-[0.12em]" style={{ color: cs.dot, opacity: 0.60 }}>{cs.name}</span>
-      </div>
-      <div className="flex-1 px-3 py-3" style={{ background: "rgba(8,8,18,0.95)" }}>
-        <h3 className="text-[13px] font-serif tracking-wide leading-snug mb-1"
-          style={{ color: "rgba(255,255,255,0.82)" }}>{dream.title}</h3>
-        <p className="text-[11px] leading-relaxed mb-2"
-          style={{ color: "rgba(255,255,255,0.26)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
-          {dream.summary}
-        </p>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>{date}</span>
-          <span style={{ color: "rgba(255,255,255,0.12)" }}>·</span>
-          <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.18)" }}>{time}</span>
-        </div>
-      </div>
-      <div className="absolute inset-0 rounded-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ boxShadow: `inset 0 0 0 1px hsl(${cs.hsl} / 0.20)` }} />
-    </motion.div>
-  );
-}
-
-function DreamCard({ dream, index, onClick }: { dream: SavedDream; index: number; onClick: () => void }) {
-  const v = getVariant(dream);
-  if (v === "large")   return <LargeCard   dream={dream} index={index} onClick={onClick} />;
-  if (v === "compact") return <CompactCard dream={dream} index={index} onClick={onClick} />;
-  return <MediumCard dream={dream} index={index} onClick={onClick} />;
-}
-
-function DateGroup({
-  label, dreams, baseIndex, onDreamClick,
-}: { label: string; dreams: SavedDream[]; baseIndex: number; onDreamClick: (id: string) => void }) {
-  const compact = dreams.filter(d => getVariant(d) === "compact");
-  const others  = dreams.filter(d => getVariant(d) !== "compact");
-
-  return (
-    <div>
-      <DateGroupHeader label={label} count={dreams.length} />
-      <div className="flex flex-col gap-3.5">
-        {others.map((d, i) => (
-          <DreamCard key={d.id} dream={d} index={baseIndex + i} onClick={() => onDreamClick(d.id)} />
-        ))}
-        {compact.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            {compact.map((d, i) => (
-              <DreamCard key={d.id} dream={d} index={baseIndex + others.length + i} onClick={() => onDreamClick(d.id)} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
+// ── Empty state ───────────────────────────────────────────────────────────────
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 gap-6">
-      <motion.div className="relative w-18 h-18"
-        animate={{ y: [0, -8, 0] }}
+    <div className="flex flex-col items-center justify-center py-24 gap-6">
+      <motion.div animate={{ y: [0, -8, 0] }}
         transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut" }}>
         <div className="w-16 h-16 relative">
           <div className="absolute inset-0 rounded-full opacity-15"
             style={{ background: "radial-gradient(circle, rgba(107,140,255,0.9), transparent)" }} />
           <div className="absolute inset-3 rounded-full flex items-center justify-center"
-            style={{
-              background: "radial-gradient(circle at 38% 35%, rgba(107,140,255,0.18), rgba(20,15,50,0.40))",
-              border: "1px solid rgba(107,140,255,0.14)",
-            }}>
+            style={{ background: "radial-gradient(circle at 38% 35%, rgba(107,140,255,0.18), rgba(20,15,50,0.40))", border: "1px solid rgba(107,140,255,0.14)" }}>
             <Sparkles size={15} style={{ color: "rgba(107,140,255,0.35)" }} />
           </div>
         </div>
       </motion.div>
-      <div className="flex flex-col items-center gap-2 text-center">
+      <div className="text-center space-y-2">
         <p className="text-[13px] tracking-wide" style={{ color: "rgba(255,255,255,0.25)" }}>
-          {filtered ? "这一天没有留下任何梦" : "你还没有收藏任何梦"}
+          {filtered ? "这一天没有留下任何梦" : "还没有梦境收入档案"}
         </p>
         <p className="text-[10px] tracking-[0.16em]" style={{ color: "rgba(255,255,255,0.10)" }}>
-          {filtered ? "试试选择其他日期" : "第一段被你留下的梦，会出现在这里"}
+          {filtered ? "试试选择其他日期" : "在梦境空间与 AI 对话后保存梦境"}
         </p>
       </div>
     </div>
@@ -498,6 +222,7 @@ export default function DreamArchiveList() {
     } catch { /* ignore */ }
   }, []);
 
+  // Calendar dot indicators
   const dreamsByDate = useMemo(() => {
     const map: Record<string, SavedDream[]> = {};
     for (const d of allDreams) {
@@ -508,29 +233,44 @@ export default function DreamArchiveList() {
     return map;
   }, [allDreams]);
 
+  // Filtered dreams (by selected date or all)
   const filtered = useMemo(() =>
     selectedDate ? allDreams.filter(d => d.createdAt.startsWith(selectedDate)) : allDreams,
     [allDreams, selectedDate]
   );
 
-  const groups = useMemo(() => {
-    const map: Record<string, SavedDream[]> = {};
-    for (const d of filtered) {
-      const k = toDateKey(d.createdAt);
-      if (!map[k]) map[k] = [];
-      map[k].push(d);
-    }
-    return Object.entries(map)
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([key, dreams]) => ({ key, label: fmtGroupLabel(key), dreams }));
-  }, [filtered]);
+  // Build ChromaGrid items from filtered dreams
+  const chromaItems = useMemo(() =>
+    filtered.map(dream => {
+      const imgMsg = dream.messages.find(
+        m => m.role === "user" && (m.imageUrl || m.type === "image")
+      );
+      const image     = imgMsg?.imageUrl ?? dream.coverImage ?? null;
+      const hasAudio  = dream.messages.filter(m => m.role === "user").some(m => m.type === "audio");
+      const hasImage  = !!image;
+      const { date, time } = fmtArchiveDate(dream.createdAt);
 
-  let cardCounter = 0;
+      return {
+        dreamId:  dream.id,
+        charKey:  dream.activeCharacter as string,
+        image,
+        date,
+        time,
+        title:    dream.title,
+        subtitle: dream.summary?.slice(0, 60) + (dream.summary?.length > 60 ? "…" : ""),
+        hasAudio,
+        hasImage,
+      };
+    }),
+    [filtered]
+  );
 
   return (
-    <div className="min-h-screen w-full bg-[#05050A] text-white flex flex-col relative overflow-x-hidden"
-      onClick={() => calOpen && setCalOpen(false)}>
-
+    <div
+      className="min-h-screen w-full text-white flex flex-col"
+      style={{ background: "#05050A" }}
+      onClick={() => calOpen && setCalOpen(false)}
+    >
       {/* Calendar modal */}
       <AnimatePresence>
         {calOpen && (
@@ -545,97 +285,82 @@ export default function DreamArchiveList() {
 
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-[0.038]"
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-[0.030]"
           style={{ background: "radial-gradient(circle, rgba(107,140,255,1), transparent)" }} />
-        <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full opacity-[0.028]"
+        <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full opacity-[0.022]"
           style={{ background: "radial-gradient(circle, rgba(155,124,255,1), transparent)" }} />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 px-6 pt-8 pb-2 max-w-xl mx-auto w-full">
+      {/* ── Header ── */}
+      <div className="relative z-10 flex-none px-6 pt-8 pb-4 max-w-5xl mx-auto w-full">
         <div className="flex items-center justify-between mb-5">
+          {/* Back to corridor */}
           <button
             onClick={() => setLocation("/archive")}
-            className="flex items-center gap-2 text-[11px] tracking-[0.2em] uppercase"
-            style={{ color: "rgba(255,255,255,0.25)" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.65")}
-            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+            className="flex items-center gap-2 text-[11px] tracking-[0.20em] uppercase"
+            style={{ color: "rgba(255,255,255,0.22)" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.50)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.22)")}
           >
             <ArrowLeft size={13} /><span>回忆走廊</span>
           </button>
 
-          <div className="flex items-center gap-2">
-            {/* Gallery shortcut */}
-            <motion.button
-              onClick={() => setLocation("/archive")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-              whileHover={{ opacity: 0.80 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <GalleryHorizontal size={12} style={{ color: "rgba(255,255,255,0.25)" }} />
-              <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.22)" }}>走廊</span>
-            </motion.button>
-
-            {/* Calendar button */}
-            <motion.button
-              onClick={e => { e.stopPropagation(); setCalOpen(s => !s); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background: calOpen || selectedDate ? "rgba(107,140,255,0.14)" : "rgba(255,255,255,0.04)",
-                border: calOpen || selectedDate ? "1px solid rgba(107,140,255,0.28)" : "1px solid rgba(255,255,255,0.07)",
-              }}
-              whileHover={{ opacity: 0.82 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <CalendarDays size={12} style={{ color: selectedDate ? "rgba(107,140,255,0.88)" : "rgba(255,255,255,0.32)" }} />
-              <span className="text-[11px] tracking-wide" style={{ color: selectedDate ? "rgba(107,140,255,0.80)" : "rgba(255,255,255,0.32)" }}>
-                {selectedDate ? selectedDate.replace(/-/g, ".").slice(2) : "日期"}
-              </span>
-              {selectedDate && (
-                <motion.span
-                  onClick={e => { e.stopPropagation(); setSelectedDate(null); }}
-                  className="ml-0.5"
-                  whileTap={{ scale: 0.85 }}
-                >
-                  <X size={9} style={{ color: "rgba(107,140,255,0.60)" }} />
-                </motion.span>
-              )}
-            </motion.button>
-          </div>
+          {/* Date filter */}
+          <motion.button
+            onClick={e => { e.stopPropagation(); setCalOpen(s => !s); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+            style={{
+              background: calOpen || selectedDate ? "rgba(107,140,255,0.14)" : "rgba(255,255,255,0.04)",
+              border: calOpen || selectedDate ? "1px solid rgba(107,140,255,0.28)" : "1px solid rgba(255,255,255,0.07)",
+            }}
+            whileHover={{ opacity: 0.82 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <CalendarDays size={12} style={{ color: selectedDate ? "rgba(107,140,255,0.88)" : "rgba(255,255,255,0.32)" }} />
+            <span className="text-[11px] tracking-wide" style={{ color: selectedDate ? "rgba(107,140,255,0.80)" : "rgba(255,255,255,0.32)" }}>
+              {selectedDate ? selectedDate.replace(/-/g, ".").slice(2) : "日期"}
+            </span>
+            {selectedDate && (
+              <motion.span
+                onClick={e => { e.stopPropagation(); setSelectedDate(null); }}
+                className="ml-0.5"
+                whileTap={{ scale: 0.85 }}
+              >
+                <X size={9} style={{ color: "rgba(107,140,255,0.60)" }} />
+              </motion.span>
+            )}
+          </motion.button>
         </div>
 
         {/* Title */}
         <h1 className="text-[26px] font-serif tracking-wide" style={{ color: "rgba(255,255,255,0.88)" }}>
-          梦之档案
+          全部梦境
         </h1>
         <p className="mt-1.5 text-[11px] tracking-[0.16em]" style={{ color: "rgba(255,255,255,0.16)" }}>
           {selectedDate
-            ? `筛选：${selectedDate.replace(/-/g, ".")}  ·  ${filtered.length} 段梦`
-            : "每一段被收藏的梦，都不会消散"}
+            ? `${selectedDate.replace(/-/g, ".")}  ·  ${filtered.length} 段梦`
+            : allDreams.length > 0
+              ? `共 ${allDreams.length} 段梦境收藏在档`
+              : "每一段被收藏的梦，都不会消散"}
         </p>
       </div>
 
-      {/* Dream list */}
-      <div className="relative z-10 flex-1 px-5 pb-16 max-w-xl mx-auto w-full">
+      {/* ── ChromaGrid ── */}
+      <div className="relative z-10 flex-1 px-6 pb-16 max-w-5xl mx-auto w-full">
         {filtered.length === 0 ? (
           <EmptyState filtered={!!selectedDate} />
         ) : (
-          <div>
-            {groups.map(g => {
-              const el = (
-                <DateGroup
-                  key={g.key}
-                  label={g.label}
-                  dreams={g.dreams}
-                  baseIndex={cardCounter}
-                  onDreamClick={id => setLocation(`/archive/${id}`)}
-                />
-              );
-              cardCounter += g.dreams.length;
-              return el;
-            })}
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
+          >
+            <ChromaGrid
+              items={chromaItems}
+              onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
+              radius={300}
+            />
+          </motion.div>
         )}
       </div>
     </div>

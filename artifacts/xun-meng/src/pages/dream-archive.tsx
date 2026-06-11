@@ -158,7 +158,7 @@ export default function DreamCorridor() {
             >
               <LayoutList size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
               <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.30)" }}>
-                档案列表
+                全部梦境
               </span>
             </motion.button>
           </motion.div>
@@ -224,7 +224,7 @@ export default function DreamCorridor() {
             onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
             onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
           >
-            查看档案列表 →
+            查看全部梦境 →
           </button>
         </motion.div>
       )}
