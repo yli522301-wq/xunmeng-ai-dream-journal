@@ -19,6 +19,9 @@ import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackgro
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CharKey = "daoshen" | "muge" | "anuan";
 export type ResponseMode = "solo" | "multi" | "cross";
+export type VoiceStatus = "idle" | "requesting" | "recording" | "processing" | "error";
+
+const FALLBACK_TRANSCRIPT = "我梦到自己一直在赶路，但怎么都赶不上。";
 
 export interface ChatMessage {
   id: string;
@@ -201,10 +204,23 @@ export default function DreamSpace() {
 
   const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
   const [inputText,     setInputText]     = useState("");
-  const [isListening,   setIsListening]   = useState(false);
+  const [voiceStatusS,  setVoiceStatusS]  = useState<VoiceStatus>("idle");
   const [isThinking,    setIsThinking]    = useState(false);
   const [thinkingMsg,   setThinkingMsg]   = useState("正在感应…");
   const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
+
+  // Use a ref for voiceStatus so recognition callbacks never see stale state
+  const voiceStatusRef  = useRef<VoiceStatus>("idle");
+  const transcriptRef   = useRef<string | null>(null);
+  const handleSendRef   = useRef<(text?: string) => Promise<void>>(async () => {});
+
+  function setVoiceStatus(s: VoiceStatus) {
+    voiceStatusRef.current = s;
+    setVoiceStatusS(s);
+  }
+  // Derived alias used in render
+  const voiceStatus   = voiceStatusS;
+  const isListening   = voiceStatus === "recording"; // for CompanionOrb / AudioWaveform
 
   const [atmosphereOpen, setAtmosphereOpen] = useState(false);
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
@@ -217,26 +233,71 @@ export default function DreamSpace() {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  const SpeechRecognition =
-    typeof window !== "undefined"
-      ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition)
-      : null;
+  // Keep handleSendRef current so recognition callbacks avoid stale closures
+  useEffect(() => { handleSendRef.current = handleSend; });
 
+  // Set up SpeechRecognition ONCE on mount — never recreate on char switch
   useEffect(() => {
-    if (!SpeechRecognition) return;
-    const r = new SpeechRecognition();
-    r.continuous = false;
-    r.interimResults = false;
-    r.onresult = (e: any) => {
-      const t = e.results[0][0].transcript;
-      setIsListening(false);
-      setTimeout(() => handleSend(t), 300);
+    const SR: any =
+      typeof window !== "undefined"
+        ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition)
+        : null;
+    if (!SR) return;
+
+    const r = new SR();
+    r.continuous      = false;
+    r.interimResults  = true;
+    r.maxAlternatives = 1;
+    r.lang            = "zh-CN";
+
+    r.onstart = () => {
+      setVoiceStatus("recording");
     };
-    r.onerror = () => setIsListening(false);
-    r.onend   = () => setIsListening(false);
+
+    r.onresult = (e: any) => {
+      // Capture the latest final transcript
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          transcriptRef.current = e.results[i][0].transcript;
+        }
+      }
+    };
+
+    r.onerror = (e: any) => {
+      transcriptRef.current = null;
+      const prev = voiceStatusRef.current;
+      setVoiceStatus("idle");
+      if (e.error === "not-allowed" || e.error === "permission-denied") {
+        toast({ title: "没有获得麦克风权限，你也可以直接输入梦境。" });
+      } else if (prev !== "idle") {
+        // Other error — silently fall back
+        toast({ title: "我没有听清楚，已为你使用示例梦境继续。" });
+        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+      }
+    };
+
+    r.onend = () => {
+      const prev = voiceStatusRef.current;
+      // If already idle/error, do nothing (onerror handled it)
+      if (prev === "idle" || prev === "error") return;
+      const text = transcriptRef.current;
+      transcriptRef.current = null;
+      setVoiceStatus("idle");
+      if (text && text.trim()) {
+        toast({ title: "已经听见了你的梦。" });
+        setTimeout(() => handleSendRef.current(text.trim()), 200);
+      } else {
+        toast({ title: "我没有听清楚，已为你使用示例梦境继续。" });
+        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+      }
+    };
+
     recognitionRef.current = r;
+    return () => {
+      try { r.abort(); } catch { /* ignore */ }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChar?.id]);
+  }, []);
 
   useEffect(() => () => { stopAmbient(); stopMusic(); }, [stopAmbient, stopMusic]);
 
@@ -334,27 +395,42 @@ export default function DreamSpace() {
     }
   };
 
-  // ── Mic ───────────────────────────────────────────────────────────────────
+  // ── Mic state machine ────────────────────────────────────────────────────
   const toggleMic = () => {
-    if (!SpeechRecognition || !recognitionRef.current) {
-      // Graceful fallback: simulate recording + mock transcription
-      if (isListening) {
-        setIsListening(false);
-      } else {
-        setIsListening(true);
-        setTimeout(() => {
-          setIsListening(false);
-          setTimeout(() => handleSend("我梦到自己一直在赶路，但怎么都赶不上。"), 300);
-        }, 1800);
-      }
+    // Block while busy
+    if (voiceStatus === "requesting" || voiceStatus === "processing") return;
+
+    // Stop recording
+    if (voiceStatus === "recording") {
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      setVoiceStatus("processing");
       return;
     }
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      recognitionRef.current.lang = activeChar?.language === "en" ? "en-US" : "zh-CN";
+
+    // No Speech API → immediate mock fallback
+    if (!recognitionRef.current) {
+      toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
+      setVoiceStatus("recording");
+      setTimeout(() => {
+        setVoiceStatus("processing");
+        setTimeout(() => {
+          setVoiceStatus("idle");
+          handleSend(FALLBACK_TRANSCRIPT);
+        }, 500);
+      }, 1800);
+      return;
+    }
+
+    // Start real recording
+    setVoiceStatus("requesting");
+    try {
       recognitionRef.current.start();
-      setIsListening(true);
+      // onstart will transition to "recording"
+    } catch {
+      // Already running or other error — reset and try fallback
+      setVoiceStatus("idle");
+      toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
+      setTimeout(() => handleSend(FALLBACK_TRANSCRIPT), 300);
     }
   };
 
@@ -653,44 +729,66 @@ export default function DreamSpace() {
             )}
           </button>
 
-          <motion.button
-            onClick={toggleMic}
-            className="relative flex items-center justify-center rounded-full flex-shrink-0"
-            style={{
-              width: 72, height: 72,
-              backgroundColor: `hsl(${hsl} / ${isListening ? 0.82 : 0.13})`,
-              boxShadow: isListening
-                ? `0 0 0 8px hsl(${hsl} / 0.10), 0 0 36px hsl(${hsl} / 0.30)`
-                : `0 0 0 1px hsl(${hsl} / 0.18)`,
-              color: isListening ? "#fff" : `hsl(${hsl})`,
-            }}
-            animate={isListening ? { scale: [1, 1.05, 1] } : { scale: 1 }}
-            transition={isListening ? { duration: 1.3, repeat: Infinity, ease: "easeInOut" } : {}}
-            whileHover={{ scale: 1.06 }}
-            whileTap={{ scale: 0.93 }}
-          >
-            {isListening ? <Square size={22} className="fill-current" /> : <Mic size={25} />}
-            {isListening && (
-              <motion.div className="absolute inset-0 rounded-full pointer-events-none"
-                style={{ border: `1px solid hsl(${hsl} / 0.4)` }}
-                animate={{ scale: [1, 1.55], opacity: [0.5, 0] }}
-                transition={{ duration: 1.3, repeat: Infinity, ease: "easeOut" }}
-              />
-            )}
-          </motion.button>
+          {(() => {
+            const isRecording   = voiceStatus === "recording";
+            const isRequesting  = voiceStatus === "requesting";
+            const isProcessing  = voiceStatus === "processing";
+            const bgOpacity     = isRecording ? 0.82 : isRequesting ? 0.30 : isProcessing ? 0.08 : 0.13;
+            const glowStyle     = isRecording
+              ? `0 0 0 8px hsl(${hsl} / 0.10), 0 0 36px hsl(${hsl} / 0.30)`
+              : isRequesting
+              ? `0 0 0 4px hsl(${hsl} / 0.08), 0 0 18px hsl(${hsl} / 0.15)`
+              : `0 0 0 1px hsl(${hsl} / 0.18)`;
+            return (
+              <motion.button
+                onClick={toggleMic}
+                disabled={isProcessing}
+                className="relative flex items-center justify-center rounded-full flex-shrink-0"
+                style={{
+                  width: 72, height: 72,
+                  backgroundColor: `hsl(${hsl} / ${bgOpacity})`,
+                  boxShadow: glowStyle,
+                  color: isRecording ? "#fff" : `hsl(${hsl} / ${isProcessing ? 0.35 : 1})`,
+                  cursor: isProcessing ? "default" : "pointer",
+                }}
+                animate={isRecording ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+                transition={isRecording ? { duration: 1.3, repeat: Infinity, ease: "easeInOut" } : {}}
+                whileHover={!isProcessing ? { scale: 1.06 } : {}}
+                whileTap={!isProcessing ? { scale: 0.93 } : {}}
+              >
+                {isRecording
+                  ? <Square size={22} className="fill-current" />
+                  : isProcessing
+                  ? <motion.div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: `hsl(${hsl})` }}
+                      animate={{ opacity: [0.3, 0.8, 0.3] }} transition={{ duration: 0.9, repeat: Infinity }} />
+                  : <Mic size={25} />}
+                {isRecording && (
+                  <motion.div className="absolute inset-0 rounded-full pointer-events-none"
+                    style={{ border: `1px solid hsl(${hsl} / 0.4)` }}
+                    animate={{ scale: [1, 1.55], opacity: [0.5, 0] }}
+                    transition={{ duration: 1.3, repeat: Infinity, ease: "easeOut" }}
+                  />
+                )}
+              </motion.button>
+            );
+          })()}
 
           <div style={{ width: 40 }} />
         </div>
 
-        <AnimatePresence>
-          {isListening && (
+        <AnimatePresence mode="wait">
+          {voiceStatus !== "idle" && (
             <motion.p
-              initial={{ opacity: 0, y: 4 }} exit={{ opacity: 0 }}
-              animate={{ opacity: [0.3, 0.7, 0.3] }}
-              transition={{ opacity: { duration: 1.2, repeat: Infinity }, y: { duration: 0.2 } }}
+              key={voiceStatus}
+              initial={{ opacity: 0, y: 4 }} exit={{ opacity: 0, y: -2 }}
+              animate={{ opacity: voiceStatus === "recording" ? [0.3, 0.7, 0.3] : 0.45 }}
+              transition={{ opacity: { duration: voiceStatus === "recording" ? 1.2 : 0 }, y: { duration: 0.2 } }}
               className="text-[11px] tracking-[0.2em] -mt-2"
               style={{ color: "rgba(255,255,255,0.35)" }}>
-              正在聆听你的梦…
+              {voiceStatus === "requesting"  && "正在请求麦克风权限…"}
+              {voiceStatus === "recording"   && "正在聆听你的梦…"}
+              {voiceStatus === "processing"  && "正在整理你的梦…"}
+              {voiceStatus === "error"       && "录音出现问题，请重试"}
             </motion.p>
           )}
         </AnimatePresence>
