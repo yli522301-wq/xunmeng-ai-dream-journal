@@ -120,7 +120,17 @@ function MessageBubble({
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          <p className="whitespace-pre-wrap">{msg.content}</p>
+          {msg.imageUrl && (
+            <img
+              src={msg.imageUrl}
+              alt="图片"
+              className="rounded-xl max-w-full mb-2"
+              style={{ maxHeight: "160px", objectFit: "cover", display: "block" }}
+            />
+          )}
+          {msg.content !== "[图片]" && (
+            <p className="whitespace-pre-wrap">{msg.content}</p>
+          )}
           <p className="mt-1 text-[9px] tracking-wider text-right" style={{ color: "rgba(255,255,255,0.18)" }}>
             {msg.timestamp}
           </p>

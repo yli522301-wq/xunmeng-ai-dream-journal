@@ -4,7 +4,7 @@ import {
   useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
 import { Link } from "wouter";
-import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles } from "lucide-react";
+import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
@@ -27,6 +27,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | CharKey;
   content: string;
+  imageUrl?: string;
   timestamp: string;
 }
 
@@ -209,6 +210,15 @@ export default function DreamSpace() {
   const [thinkingMsg,   setThinkingMsg]   = useState("正在感应…");
   const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
 
+  const [pendingImageDataUrl, setPendingImageDataUrl] = useState<string | null>(null);
+  const [bgMusicOpen,    setBgMusicOpen]    = useState(false);
+  const [bgMusicUrl,     setBgMusicUrl]     = useState<string | null>(null);
+  const [bgMusicName,    setBgMusicName]    = useState("");
+  const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
+  const [bgMusicVolume,  setBgMusicVolume]  = useState(0.3);
+  const bgAudioRef      = useRef<HTMLAudioElement | null>(null);
+  const bgMusicInputRef = useRef<HTMLInputElement>(null);
+
   // Use a ref for voiceStatus so recognition callbacks never see stale state
   const voiceStatusRef       = useRef<VoiceStatus>("idle");
   const transcriptRef        = useRef<string | null>(null);
@@ -332,6 +342,19 @@ export default function DreamSpace() {
 
   useEffect(() => () => { stopAmbient(); stopMusic(); }, [stopAmbient, stopMusic]);
 
+  // Sync music volume
+  useEffect(() => {
+    if (bgAudioRef.current) bgAudioRef.current.volume = bgMusicVolume;
+  }, [bgMusicVolume]);
+
+  // Auto-pause music during recording
+  useEffect(() => {
+    if (voiceStatusS === "recording" && bgAudioRef.current && !bgAudioRef.current.paused) {
+      bgAudioRef.current.pause();
+      setBgMusicPlaying(false);
+    }
+  }, [voiceStatusS]);
+
   // Persist avatars
   useEffect(() => { saveAvatars(avatars); }, [avatars]);
 
@@ -392,12 +415,20 @@ export default function DreamSpace() {
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = async (text?: string) => {
     const msg = (text ?? inputText).trim();
-    if (!msg || !activeChar) return;
+    const imgUrl = text ? null : pendingImageDataUrl;
+    if (!msg && !imgUrl) return;
+    if (!activeChar) return;
     setInputText("");
+    if (!text) setPendingImageDataUrl(null);
     setThinkingMsg(THINKING_MSG[activeKey]);
     setIsThinking(true);
 
-    const userMsg: ChatMessage = { id: genId(), role: "user", content: msg, timestamp: nowTime() };
+    const userMsg: ChatMessage = {
+      id: genId(), role: "user",
+      content: msg || (imgUrl ? "[图片]" : ""),
+      imageUrl: imgUrl ?? undefined,
+      timestamp: nowTime(),
+    };
     const updatedMsgs = [...messages, userMsg];
     setMessages(updatedMsgs);
 
@@ -480,30 +511,50 @@ export default function DreamSpace() {
   };
 
   // ── Image ──────────────────────────────────────────────────────────────────
-  const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !activeChar) return;
-    setIsThinking(true);
+    if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (ev) => {
+    reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
-      const base64  = dataUrl.split(",")[1];
-      try {
-        const res = await recognizeMutation.mutateAsync({
-          data: { imageBase64: base64, mimeType: file.type || "image/jpeg" },
-        });
-        const replyText = `${res.description}\n\n${res.draftContent}`;
-        const userMsg: ChatMessage  = { id: genId(), role: "user",     content: "[图片]",  timestamp: nowTime() };
-        const aiMsg:   ChatMessage  = { id: genId(), role: activeKey,  content: replyText, timestamp: nowTime() };
-        setMessages(prev => [...prev, userMsg, aiMsg]);
-        speak(replyText);
-      } catch {
-        toast({ title: "图片感应失败", variant: "destructive" });
-      } finally {
-        setIsThinking(false);
-      }
+      if (dataUrl) setPendingImageDataUrl(dataUrl);
+      else toast({ title: "图片没有载入成功，请重新选择。" });
     };
+    reader.onerror = () => toast({ title: "图片没有载入成功，请重新选择。" });
     reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleBgMusicFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (bgMusicUrl) URL.revokeObjectURL(bgMusicUrl);
+    const url = URL.createObjectURL(file);
+    setBgMusicUrl(url);
+    setBgMusicName(file.name.replace(/\.[^.]+$/, ""));
+    if (bgAudioRef.current) {
+      bgAudioRef.current.src = url;
+      bgAudioRef.current.volume = bgMusicVolume;
+      bgAudioRef.current.play()
+        .then(() => setBgMusicPlaying(true))
+        .catch(() => {
+          toast({ title: "这首音乐暂时无法播放，请换一首。" });
+          setBgMusicPlaying(false);
+        });
+    }
+    e.target.value = "";
+  };
+
+  const toggleBgMusic = () => {
+    if (!bgAudioRef.current || !bgMusicUrl) return;
+    if (bgMusicPlaying) {
+      bgAudioRef.current.pause();
+      setBgMusicPlaying(false);
+    } else {
+      bgAudioRef.current.play()
+        .then(() => setBgMusicPlaying(true))
+        .catch(() => toast({ title: "这首音乐暂时无法播放，请换一首。" }));
+    }
   };
 
   // ── Save dream ─────────────────────────────────────────────────────────────
@@ -750,6 +801,33 @@ export default function DreamSpace() {
       <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-3 flex-shrink-0"
         style={{ zIndex: 30, position: "relative" }}>
 
+        {/* Pending image preview */}
+        <AnimatePresence>
+          {pendingImageDataUrl && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.2 }}
+              className="w-full flex justify-start"
+            >
+              <div className="relative inline-flex">
+                <img
+                  src={pendingImageDataUrl}
+                  alt="预览"
+                  className="h-16 w-16 rounded-xl object-cover"
+                  style={{ border: `1px solid hsl(${hsl} / 0.22)` }}
+                />
+                <button
+                  onClick={() => setPendingImageDataUrl(null)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(10,10,20,0.85)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.60)" }}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Text input + image */}
         <div className="w-full flex items-center gap-3">
           <input
@@ -763,12 +841,13 @@ export default function DreamSpace() {
               borderBottom: "1px solid rgba(255,255,255,0.07)",
             }}
           />
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+          <input ref={bgMusicInputRef} type="file" accept="audio/mpeg,audio/wav,audio/x-m4a,audio/*" className="hidden" onChange={handleBgMusicFile} />
           <button onClick={() => fileInputRef.current?.click()}
             className="transition-colors flex-shrink-0"
-            style={{ color: "rgba(255,255,255,0.18)" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.45)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.18)")}>
+            style={{ color: pendingImageDataUrl ? `hsl(${hsl} / 0.8)` : "rgba(255,255,255,0.18)" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.50)")}
+            onMouseLeave={e => (e.currentTarget.style.color = pendingImageDataUrl ? `hsl(${hsl} / 0.8)` : "rgba(255,255,255,0.18)")}>
             <ImageIcon size={15} />
           </button>
         </div>
@@ -834,7 +913,103 @@ export default function DreamSpace() {
             );
           })()}
 
-          <div style={{ width: 40 }} />
+          {/* ── Music button + panel ── */}
+          <div className="relative flex-shrink-0" style={{ width: 40 }}>
+            <AnimatePresence>
+              {bgMusicOpen && (
+                <motion.div
+                  className="absolute bottom-[calc(100%+10px)] right-0 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
+                  style={{
+                    background: "rgba(8,8,18,0.93)",
+                    backdropFilter: "blur(24px)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    boxShadow: "0 4px 32px rgba(0,0,0,0.55)",
+                    zIndex: 50,
+                  }}
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.97 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  {/* Import button */}
+                  <button
+                    onClick={() => bgMusicInputRef.current?.click()}
+                    className="flex items-center gap-2 text-[11px] tracking-wide rounded-xl px-2.5 py-2 w-full transition-all"
+                    style={{ background: "rgba(255,255,255,0.045)", color: "rgba(255,255,255,0.55)" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.045)")}
+                  >
+                    <Music2 size={12} />
+                    {bgMusicName ? "更换音乐" : "导入音乐文件"}
+                  </button>
+
+                  {bgMusicName && (
+                    <>
+                      {/* Play/pause + filename */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={toggleBgMusic}
+                          className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-all"
+                          style={{
+                            background: bgMusicPlaying ? `hsl(${hsl} / 0.22)` : "rgba(255,255,255,0.07)",
+                            color: bgMusicPlaying ? `hsl(${hsl})` : "rgba(255,255,255,0.50)",
+                          }}
+                        >
+                          <span className="text-[10px]">{bgMusicPlaying ? "‖" : "▷"}</span>
+                        </button>
+                        <span className="text-[11px] truncate flex-1" style={{ color: "rgba(255,255,255,0.38)", maxWidth: "120px" }}>
+                          {bgMusicName}
+                        </span>
+                        {bgMusicPlaying && (
+                          <div className="flex gap-[2px] items-end h-3 flex-shrink-0">
+                            {[0, 1, 2].map(i => (
+                              <motion.div key={i} className="w-[2px] rounded-full"
+                                style={{ background: `hsl(${hsl} / 0.60)` }}
+                                animate={{ height: ["3px", "10px", "3px"] }}
+                                transition={{ duration: 0.65 + i * 0.18, repeat: Infinity, ease: "easeInOut", delay: i * 0.11 }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Volume slider */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.22)" }}>♪</span>
+                        <input
+                          type="range" min={0} max={1} step={0.01}
+                          value={bgMusicVolume}
+                          onChange={e => setBgMusicVolume(Number(e.target.value))}
+                          className="flex-1 h-[3px] rounded-full cursor-pointer appearance-none"
+                          style={{ accentColor: `hsl(${hsl})` }}
+                        />
+                        <span className="text-[10px] w-7 text-right tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>
+                          {Math.round(bgMusicVolume * 100)}%
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button
+              onClick={() => setBgMusicOpen(s => !s)}
+              className="flex flex-col items-center gap-1 transition-all"
+              style={{ color: bgMusicOpen || bgMusicPlaying ? `hsl(${hsl} / 0.75)` : "rgba(255,255,255,0.20)", width: 40 }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
+              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+            >
+              <Music2 size={17} />
+              {bgMusicPlaying && (
+                <motion.span className="w-1 h-1 rounded-full"
+                  style={{ backgroundColor: `hsl(${hsl})` }}
+                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 1.8, repeat: Infinity }}
+                />
+              )}
+            </button>
+          </div>
         </div>
 
         <AnimatePresence mode="wait">
@@ -864,6 +1039,14 @@ export default function DreamSpace() {
         onSound={handleSoundChange}
         onMusic={handleMusicChange}
         onClose={() => setAtmosphereOpen(false)}
+      />
+
+      {/* Hidden background music audio element */}
+      <audio
+        ref={el => { bgAudioRef.current = el; if (el) el.volume = bgMusicVolume; }}
+        loop
+        preload="none"
+        style={{ display: "none" }}
       />
     </div>
   );
