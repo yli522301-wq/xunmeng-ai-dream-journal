@@ -91,6 +91,58 @@ const DREAM_CHARS: DreamCharConfig[] = [
 const CHAR_MAP = Object.fromEntries(DREAM_CHARS.map(c => [c.key, c])) as Record<CharKey, DreamCharConfig>;
 const ALL_KEYS: CharKey[] = ["daoshen", "muge", "anuan"];
 
+// ── Local mock AI ───────────────────────────────────────────────────────────
+const THINKING_MSG: Record<CharKey, string> = {
+  daoshen: "岛深正在往梦的深处看…",
+  muge:    "暮歌正在整理梦的画面…",
+  anuan:   "阿暖正在慢慢听你说…",
+};
+
+const MOCK_POOL: Record<CharKey, string[]> = {
+  daoshen: [
+    "我会先看这个梦的结构。你描述的这个场景里有一种被追赶或被限制的张力——这往往不是单纯的情节，而是潜意识在用象征语言说话。反复出现的感觉，通常指向清醒时回避的某个问题。",
+    "从象征层面看，这个梦有几个值得注意的元素：运动的方向、空间的边界、以及你在梦里的情绪底色。梦里的地形，通常是内心状态的镜像。",
+    "有意思。这个意象的核心是一种「距离感」——你和某个目标之间的距离不是在缩短，而是在维持。这种模式在现实里，有对应的关系或处境吗？",
+  ],
+  muge: [
+    "这个梦像一条被拉长的路。你一直在走，但终点像雾一样往后退。那种追不上的感觉，有时候不是在追一个地方，而是在追一个正在离开的自己。梦把它变成了距离。",
+    "你说的画面，让我想到一种感觉——路在继续，人却站着不动。梦里的距离，往往是心里距离的倒影。你梦里有光吗，还是一直是灰色的？",
+    "这些碎片拼在一起，像一幅没有标题的画。我想帮你找到那个标题。梦境有时候不讲逻辑，但它有自己的情绪诗学——你留下的感觉，比情节更重要。",
+  ],
+  anuan: [
+    "先别急着解释它。光是这个梦留下的感觉，就已经很值得被看见了。你说完以后，有没有觉得轻松了一点点？",
+    "听你说完，我心里有点紧。这个梦好像带着一些你平时没有说出口的累。不用讲完整，你现在感觉怎么样？",
+    "嗯，我听到了。不管梦里发生了什么，它留下来的那种情绪是真实的。我们可以慢慢聊，不用一下子说清楚。",
+  ],
+};
+
+function getMockReply(key: CharKey, userMsg: string, history: ChatMessage[]): string {
+  // If user mentions another character by name, reference their last message
+  const mentioned = ALL_KEYS.filter(k => k !== key).find(k =>
+    userMsg.includes(CHAR_MAP[k].name)
+  );
+  const refMsg = mentioned
+    ? [...history].reverse().find(m => m.role === mentioned)
+    : null;
+
+  const pool = MOCK_POOL[key];
+  let reply = pool[Math.floor(Math.random() * pool.length)];
+
+  if (refMsg) {
+    const snippet = refMsg.content.slice(0, 28);
+    const prefixes: Record<CharKey, string> = {
+      daoshen: `${CHAR_MAP[mentioned!].name}的角度更偏情感直觉——"${snippet}…" 我补充一个结构视角：`,
+      muge:    `岛深说得很精准，但我更想留在那个画面里。"${snippet}…"——`,
+      anuan:   `他们说的都有道理，但我想先问问你听完以后，感觉怎么样？"${snippet}…" 这句话有没有让你想到什么？`,
+    };
+    reply = prefixes[key] + " " + reply;
+  }
+
+  return reply;
+}
+
+const DREAMS_STORAGE_KEY = "xm-saved-dreams";
+
 function getCharConfig(name: string): DreamCharConfig {
   for (const c of DREAM_CHARS) {
     if (name.includes(c.nameMatch)) return c;
@@ -147,11 +199,12 @@ export default function DreamSpace() {
   const createDreamMutation = useCreateDream();
   const recognizeMutation   = useAiRecognizeImage();
 
-  const [messages,    setMessages]    = useState<ChatMessage[]>(DEMO_MESSAGES);
-  const [inputText,   setInputText]   = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [isThinking,  setIsThinking]  = useState(false);
-  const [avatars,     setAvatars]     = useState<Record<CharKey, string | null>>(loadAvatars);
+  const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [inputText,     setInputText]     = useState("");
+  const [isListening,   setIsListening]   = useState(false);
+  const [isThinking,    setIsThinking]    = useState(false);
+  const [thinkingMsg,   setThinkingMsg]   = useState("正在感应…");
+  const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
 
   const [atmosphereOpen, setAtmosphereOpen] = useState(false);
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
@@ -249,22 +302,31 @@ export default function DreamSpace() {
     const msg = (text ?? inputText).trim();
     if (!msg || !activeChar) return;
     setInputText("");
+    setThinkingMsg(THINKING_MSG[activeKey]);
     setIsThinking(true);
 
     const userMsg: ChatMessage = { id: genId(), role: "user", content: msg, timestamp: nowTime() };
     const updatedMsgs = [...messages, userMsg];
     setMessages(updatedMsgs);
 
-    const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
-
     try {
-      // Current active character replies, with full shared history as context
-      const res = await chatMutation.mutateAsync({
-        data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
-      });
-      const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
-      setMessages(prev => [...prev, reply]);
-      speak(res.reply);
+      if (!settings?.hasApiKey) {
+        // Local mock: delay 600–1000 ms to feel natural
+        const delay = 600 + Math.random() * 400;
+        await new Promise(r => setTimeout(r, delay));
+        const replyContent = getMockReply(activeKey, msg, updatedMsgs);
+        const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
+        setMessages(prev => [...prev, reply]);
+        speak(replyContent);
+      } else {
+        const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
+        const res = await chatMutation.mutateAsync({
+          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
+        });
+        const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
+        setMessages(prev => [...prev, reply]);
+        speak(res.reply);
+      }
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -275,7 +337,16 @@ export default function DreamSpace() {
   // ── Mic ───────────────────────────────────────────────────────────────────
   const toggleMic = () => {
     if (!SpeechRecognition || !recognitionRef.current) {
-      toast({ title: "此浏览器不支持语音输入", variant: "destructive" });
+      // Graceful fallback: simulate recording + mock transcription
+      if (isListening) {
+        setIsListening(false);
+      } else {
+        setIsListening(true);
+        setTimeout(() => {
+          setIsListening(false);
+          setTimeout(() => handleSend("我梦到自己一直在赶路，但怎么都赶不上。"), 300);
+        }, 1800);
+      }
       return;
     }
     if (isListening) {
@@ -315,22 +386,31 @@ export default function DreamSpace() {
   };
 
   // ── Save dream ─────────────────────────────────────────────────────────────
-  const handleSaveDream = async () => {
-    if (!activeChar || messages.filter(m => m.role === "user").length === 0) {
-      toast({ title: "还没有梦境内容" }); return;
+  const handleSaveDream = () => {
+    const userMessages = messages.filter(m => m.role === "user");
+    if (userMessages.length === 0) {
+      toast({ title: "先说一点梦的内容，再保存。" });
+      return;
     }
-    const firstUser = messages.find(m => m.role === "user")?.content ?? "未命名";
-    const title = firstUser.slice(0, 15) + (firstUser.length > 15 ? "…" : "");
-    const content = messages.map(m => {
-      const who = m.role === "user" ? "你" : (CHAR_MAP[m.role as CharKey]?.name ?? m.role);
-      return `[${who}] ${m.content}`;
-    }).join("\n\n");
+    const firstUser = userMessages[0].content;
+    const title = firstUser.slice(0, 12) + (firstUser.length > 12 ? "…" : "");
+    const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
+    const summary = lastAiMsg?.content ?? firstUser;
+    const dream = {
+      id: genId(),
+      title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      activeCharacter: activeKey,
+      messages,
+      summary,
+      mood: "朦胧",
+    };
     try {
-      await createDreamMutation.mutateAsync({
-        data: { title, content, mood: "calm", clarity: "moderate", isRecurring: false,
-                companionReply: displayReply?.content, characterId: activeChar.id },
-      });
-      toast({ title: "已保存到梦境手账 ✦" });
+      const existing: unknown[] = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]");
+      existing.push(dream);
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(existing));
+      toast({ title: "这段梦，已经被收进梦里了。" });
     } catch {
       toast({ title: "保存失败", variant: "destructive" });
     }
@@ -475,7 +555,7 @@ export default function DreamSpace() {
                 initial={{ opacity: 0 }} animate={{ opacity: [0.12, 0.45, 0.12] }} exit={{ opacity: 0 }}
                 transition={{ duration: 1.6, repeat: Infinity }}
                 className="text-[11px] tracking-[0.28em]" style={{ color: "rgba(255,255,255,0.20)" }}>
-                正在感应…
+                {thinkingMsg}
               </motion.div>
             ) : displayReply ? (
               <motion.div key={`reply-${displayReply.id}`}
@@ -610,7 +690,7 @@ export default function DreamSpace() {
               transition={{ opacity: { duration: 1.2, repeat: Infinity }, y: { duration: 0.2 } }}
               className="text-[11px] tracking-[0.2em] -mt-2"
               style={{ color: "rgba(255,255,255,0.35)" }}>
-              正在聆听…
+              正在聆听你的梦…
             </motion.p>
           )}
         </AnimatePresence>
