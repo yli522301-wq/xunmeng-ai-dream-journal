@@ -16,7 +16,58 @@ import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-soun
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Dream character personality config ─────────────────────────────────────
+interface DreamCharConfig {
+  particleColor: string;
+  glowColor: string;
+  subtitle: string;
+  hint: string;
+  firstMessage: string;
+}
+
+const DREAM_CHARS: { match: string; cfg: DreamCharConfig }[] = [
+  {
+    match: "岛深",
+    cfg: {
+      particleColor: "#6B8CFF",
+      glowColor:     "rgba(107,140,255,0.28)",
+      subtitle:      "潜入梦的深处",
+      hint:          "你可以从一个画面开始，我会陪你慢慢往下潜。",
+      firstMessage:  "梦像一片海。你只需要说出最先浮上来的那个画面，我会陪你一起往深处走。",
+    },
+  },
+  {
+    match: "暮歌",
+    cfg: {
+      particleColor: "#9B7CFF",
+      glowColor:     "rgba(155,124,255,0.28)",
+      subtitle:      "你可以从任何地方开始",
+      hint:          "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。",
+      firstMessage:  "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。你的梦里，最近出现了什么？",
+    },
+  },
+  {
+    match: "阿暖",
+    cfg: {
+      particleColor: "#F2A84B",
+      glowColor:     "rgba(242,168,75,0.26)",
+      subtitle:      "我在，慢慢说",
+      hint:          "不用讲完整，哪怕只是一个感觉，也可以交给我。",
+      firstMessage:  "不用急着说清楚。你可以先告诉我，醒来后身体里留下的第一个感觉是什么。",
+    },
+  },
+];
+
+const DEFAULT_CFG: DreamCharConfig = DREAM_CHARS[1].cfg;
+
+function getCharConfig(name: string): DreamCharConfig {
+  for (const { match, cfg } of DREAM_CHARS) {
+    if (name.includes(match)) return cfg;
+  }
+  return DEFAULT_CFG;
+}
+
+// ── Other helpers ───────────────────────────────────────────────────────────
 function getColor(name: string): CompanionColor {
   if (name.includes("阿暖")) return "amber";
   if (name.includes("暮歌")) return "indigo";
@@ -29,18 +80,6 @@ function getEnName(name: string) {
   if (name.includes("岛深")) return "Daoshan";
   return "";
 }
-function getPrefix(name: string) {
-  if (name.includes("阿暖")) return "●";
-  if (name.includes("暮歌")) return "☽";
-  if (name.includes("岛深")) return "✦";
-  return "●";
-}
-function getIdleQuote(name: string) {
-  if (name.includes("阿暖")) return "我在，慢慢说";
-  if (name.includes("暮歌")) return "你可以从任何地方开始";
-  if (name.includes("岛深")) return "那个梦的线索，我记着";
-  return "说吧，我在听";
-}
 
 const COLOR_HSL: Record<CompanionColor, string> = {
   amber:  "38 90% 60%",
@@ -49,7 +88,6 @@ const COLOR_HSL: Record<CompanionColor, string> = {
   purple: "255 90% 70%",
 };
 
-// Scene auto-links to default sound + music
 const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicType }> = {
   void:  { sound: "none",  music: "none" },
   rain:  { sound: "rain",  music: "piano-rain" },
@@ -60,7 +98,7 @@ const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicTyp
 
 type Message = { role: "user" | "assistant"; content: string };
 
-// ── Component ──────────────────────────────────────────────────────────────
+// ── Component ───────────────────────────────────────────────────────────────
 export default function DreamSpace() {
   const { toast } = useToast();
 
@@ -112,7 +150,6 @@ export default function DreamSpace() {
 
   useEffect(() => () => { stopAmbient(); stopMusic(); }, [stopAmbient, stopMusic]);
 
-  // ── Scene selector (auto-links defaults) ──
   const handleSceneSelect = (t: BgTheme) => {
     setBgTheme(t);
     const def = SCENE_DEFAULTS[t];
@@ -122,20 +159,14 @@ export default function DreamSpace() {
     playMusic(def.music);
   };
 
-  const handleSoundChange = (s: AmbientSoundType) => {
-    setAmbientSound(s);
-    playAmbient(s);
-  };
-  const handleMusicChange = (m: MusicType) => {
-    setMusic(m);
-    playMusic(m);
-  };
+  const handleSoundChange = (s: AmbientSoundType) => { setAmbientSound(s); playAmbient(s); };
+  const handleMusicChange = (m: MusicType)         => { setMusic(m); playMusic(m); };
 
-  const charColor = activeChar ? getColor(activeChar.name) : "purple";
-  const hsl = COLOR_HSL[charColor];
+  const charColor  = activeChar ? getColor(activeChar.name) : "purple";
+  const hsl        = COLOR_HSL[charColor];
+  const charConfig = activeChar ? getCharConfig(activeChar.name) : DEFAULT_CFG;
   const hasAtmosphere = bgTheme !== "void" || ambientSound !== "none" || music !== "none";
 
-  // ── Tab switch ──
   const handleTabClick = async (id: string) => {
     if (activeChar?.id === id) return;
     await activateMutation.mutateAsync({ id });
@@ -144,7 +175,6 @@ export default function DreamSpace() {
     setHistory([]);
   };
 
-  // ── TTS ──
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -153,16 +183,13 @@ export default function DreamSpace() {
     window.speechSynthesis.speak(u);
   };
 
-  // ── Send message ──
   const handleSend = async (text?: string) => {
     const msg = (text ?? inputText).trim();
     if (!msg || !activeChar) return;
     setInputText("");
     setIsThinking(true);
-
     const newHistory: Message[] = [...history, { role: "user", content: msg }];
     setHistory(newHistory);
-
     try {
       const res = await chatMutation.mutateAsync({
         data: {
@@ -183,7 +210,6 @@ export default function DreamSpace() {
     }
   };
 
-  // ── Mic ──
   const toggleMic = () => {
     if (!SpeechRecognition || !recognitionRef.current) {
       toast({ title: "此浏览器不支持语音输入", variant: "destructive" });
@@ -198,7 +224,6 @@ export default function DreamSpace() {
     }
   };
 
-  // ── Image ──
   const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeChar) return;
@@ -230,7 +255,6 @@ export default function DreamSpace() {
     reader.readAsDataURL(file);
   };
 
-  // ── Save dream ──
   const handleSaveDream = async () => {
     if (!activeChar || history.length === 0) { toast({ title: "还没有梦境内容" }); return; }
     const firstUser = history.find(m => m.role === "user")?.content ?? "未命名";
@@ -263,10 +287,11 @@ export default function DreamSpace() {
   return (
     <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">
 
-      {/* Particle ring — base layer, always present */}
-      <DreamAntigravityBackground />
-
-      {/* Scene-specific ambient overlay (rain/night/fog/stars) */}
+      {/* ── Background layers ── */}
+      <DreamAntigravityBackground
+        particleColor={charConfig.particleColor}
+        glowColor={charConfig.glowColor}
+      />
       <AmbientBg theme={bgTheme} />
 
       {/* Character colour bloom */}
@@ -297,19 +322,46 @@ export default function DreamSpace() {
           </div>
         </div>
 
-        {/* Character tabs */}
+        {/* ── Character tabs ── */}
         <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
           style={{ background: "rgba(255,255,255,0.03)" }}>
           {characters?.map(c => {
             const active = activeChar.id === c.id;
+            const cfg    = getCharConfig(c.name);
             return (
-              <button key={c.id} onClick={() => handleTabClick(c.id)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-300`}
+              <button
+                key={c.id}
+                onClick={() => handleTabClick(c.id)}
                 style={{
-                  background:  active ? "rgba(255,255,255,0.09)" : "transparent",
-                  color: active ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)",
-                }}>
-                {getPrefix(c.name)} {c.name.replace(/[a-zA-Z\s]/g, "")}
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "6px 13px",
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  background: active ? "rgba(255,255,255,0.12)" : "transparent",
+                  border: `1px solid ${active ? "rgba(255,255,255,0.16)" : "transparent"}`,
+                  color: active ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.28)",
+                  transition: "all 0.3s ease",
+                  outline: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {/* Dot indicator with character colour */}
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: "50%",
+                    flexShrink: 0,
+                    backgroundColor: active ? cfg.particleColor : "rgba(255,255,255,0.18)",
+                    transition: "background-color 0.3s ease",
+                    boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
+                  }}
+                />
+                {c.name.replace(/[a-zA-Z\s]/g, "")}
               </button>
             );
           })}
@@ -325,34 +377,46 @@ export default function DreamSpace() {
       </header>
 
       {/* ── CENTER SOUL AREA ── */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5" style={{ zIndex: 10, position: "relative" }}>
+      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5"
+        style={{ zIndex: 10, position: "relative" }}>
 
         <CompanionOrb size="lg" color={charColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
 
-        {/* Name + quote */}
-        <div className="flex flex-col items-center gap-1.5 text-center">
-          <div className="flex items-center gap-2">
-            <span className="text-[19px] font-serif tracking-wide" style={{ color: "rgba(255,255,255,0.85)" }}>
-              {activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
-            </span>
-            <span className="text-xs tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.22)" }}>
-              {getEnName(activeChar.name)}
-            </span>
-            <motion.div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{ backgroundColor: `hsl(${hsl})` }}
-              animate={{ opacity: [0.2, 0.85, 0.2] }}
-              transition={{ duration: 2.8, repeat: Infinity }}
-            />
-          </div>
-          <p className="text-xs italic tracking-wide" style={{ color: "rgba(255,255,255,0.20)" }}>
-            {getIdleQuote(activeChar.name)}
-          </p>
-        </div>
+        {/* Name + subtitle — re-animate when character changes */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeChar.id}
+            initial={{ opacity: 0, y: 7 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.38, ease: "easeOut" }}
+            className="flex flex-col items-center gap-1.5 text-center"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[19px] font-serif tracking-wide" style={{ color: "rgba(255,255,255,0.85)" }}>
+                {activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
+              </span>
+              <span className="text-xs tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.22)" }}>
+                {getEnName(activeChar.name)}
+              </span>
+              {/* Pulsing dot in character colour */}
+              <motion.div
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: charConfig.particleColor }}
+                animate={{ opacity: [0.2, 0.9, 0.2] }}
+                transition={{ duration: 2.8, repeat: Infinity }}
+              />
+            </div>
+            <p className="text-xs italic tracking-wide" style={{ color: "rgba(255,255,255,0.22)" }}>
+              {charConfig.subtitle}
+            </p>
+          </motion.div>
+        </AnimatePresence>
 
         {/* Waveform */}
         <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charColor} />
 
-        {/* ── RESPONSE CARD ── */}
+        {/* ── RESPONSE / WELCOME CARD ── */}
         <div className="w-full max-w-md min-h-[80px] flex items-center justify-center mt-1">
           <AnimatePresence mode="wait">
             {isThinking ? (
@@ -380,23 +444,42 @@ export default function DreamSpace() {
                 </p>
               </motion.div>
             ) : (
-              <motion.p key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="text-[11px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.14)" }}>
-                轻触麦克风，把那个梦说给我听
-              </motion.p>
+              /* Welcome card — character's first message, shown before any conversation */
+              <motion.div
+                key={`welcome-${activeChar.id}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
+                className="w-full flex flex-col items-center gap-3"
+              >
+                <div className="w-full rounded-2xl px-5 py-4 text-center"
+                  style={{
+                    background: `linear-gradient(140deg, hsl(${hsl} / 0.04) 0%, transparent 100%)`,
+                    border: `1px solid hsl(${hsl} / 0.08)`,
+                  }}>
+                  <p className="text-[13px] leading-[1.85] italic" style={{ color: "rgba(255,255,255,0.38)" }}>
+                    {charConfig.firstMessage}
+                  </p>
+                </div>
+                <p className="text-[10px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.12)" }}>
+                  {charConfig.hint}
+                </p>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
 
-      {/* ── HISTORY BOTTOM SHEET ── (sits between center and input) */}
+      {/* ── HISTORY BOTTOM SHEET ── */}
       <HistoryBottomSheet
         history={history}
         charName={activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
       />
 
       {/* ── BOTTOM INPUT ZONE ── */}
-      <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-4 flex-shrink-0" style={{ zIndex: 30, position: "relative" }}>
+      <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-4 flex-shrink-0"
+        style={{ zIndex: 30, position: "relative" }}>
 
         {/* Text input + image */}
         <div className="w-full flex items-center gap-3">
@@ -421,10 +504,9 @@ export default function DreamSpace() {
           </button>
         </div>
 
-        {/* Main row: atmosphere | mic | (spacer) */}
+        {/* Main row: atmosphere | mic | spacer */}
         <div className="flex items-center justify-between w-full">
 
-          {/* Atmosphere control */}
           <button onClick={() => setAtmosphereOpen(true)}
             className="flex flex-col items-center gap-1 transition-colors"
             style={{ color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)" }}
@@ -467,7 +549,6 @@ export default function DreamSpace() {
             )}
           </motion.button>
 
-          {/* Spacer (mirrors atmosphere button for center-alignment of mic) */}
           <div style={{ width: 40 }} />
         </div>
 

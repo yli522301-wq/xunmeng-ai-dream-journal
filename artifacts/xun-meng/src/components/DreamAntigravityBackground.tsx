@@ -2,16 +2,20 @@
  * DreamAntigravityBackground
  *
  * Full-screen fixed background layer:
- *   - Deep purple / black dream gradient
+ *   - Deep-purple gradient base (responds to active character via glowColor)
  *   - Antigravity capsule-particle ring (React Three Fiber Canvas)
  *   - Mouse-tracking radial glow overlay (CSS custom properties)
- *   - Group drifts toward mouse in 3-D world via mousePosRef
+ *   - Orbit glow ellipse centred on the ring
+ *
+ * Props
+ * ─────
+ * particleColor  hex string for particle fill  (default "#9B7CFF")
+ * glowColor      rgba string for orbit + mouse glow (default "rgba(155,124,255,0.28)")
  *
  * Pointer-event contract
  * ──────────────────────
- * The outer wrapper is pointer-events: none. Mouse position is captured via a
- * window-level 'mousemove' listener (passive) so no z-index stacking or
- * pointer-event bubbling is needed, and nothing interferes with page clicks.
+ * Everything is pointer-events: none. Mouse position is tracked via a
+ * window-level 'mousemove' listener (passive) — never interferes with clicks.
  */
 
 import { useRef, useEffect, Component, type ReactNode } from "react";
@@ -19,8 +23,14 @@ import { Canvas } from "@react-three/fiber";
 import { Antigravity } from "./Antigravity";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// One-time WebGL capability probe
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Replaces the last numeric group (opacity) in an rgba() string */
+function withOpacity(rgba: string, opacity: number): string {
+  return rgba.replace(/[\d.]+\)$/, `${opacity})`);
+}
+
 function checkWebGL(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -29,9 +39,7 @@ function checkWebGL(): boolean {
       window.WebGLRenderingContext &&
       (c.getContext("webgl") || c.getContext("experimental-webgl"))
     );
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 const webGLSupported = checkWebGL();
 
@@ -40,7 +48,7 @@ const isMobile =
   (/Mobi|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ErrorBoundary — Canvas crash → silent gradient fallback
+// ErrorBoundary
 // ─────────────────────────────────────────────────────────────────────────────
 class CanvasErrorBoundary extends Component<
   { children: ReactNode; fallback: ReactNode },
@@ -48,21 +56,15 @@ class CanvasErrorBoundary extends Component<
 > {
   state = { error: false };
   static getDerivedStateFromError() { return { error: true }; }
-  render() {
-    return this.state.error ? this.props.fallback : this.props.children;
-  }
+  render() { return this.state.error ? this.props.fallback : this.props.children; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gradient fallback (no WebGL / error)
+// Gradient fallback (no WebGL)
 // ─────────────────────────────────────────────────────────────────────────────
-const GRADIENT_BG = [
-  "radial-gradient(circle at 50% 35%, rgba(91,70,220,0.22), transparent 32%)",
-  "radial-gradient(circle at 50% 72%, rgba(124,92,255,0.14), transparent 38%)",
-  "linear-gradient(180deg, #070716 0%, #0b0820 45%, #05040c 100%)",
-].join(", ");
+const BASE_BG = "linear-gradient(180deg, #070716 0%, #0b0820 45%, #05040c 100%)";
 
-function GradientFallback() {
+function GradientFallback({ glowColor }: { glowColor: string }) {
   return (
     <div
       style={{
@@ -70,51 +72,57 @@ function GradientFallback() {
         inset: 0,
         zIndex: 0,
         pointerEvents: "none",
-        background: GRADIENT_BG,
+        background: [
+          `radial-gradient(circle at 50% 35%, ${withOpacity(glowColor, 0.18)}, transparent 32%)`,
+          `radial-gradient(circle at 50% 72%, ${withOpacity(glowColor, 0.10)}, transparent 38%)`,
+          BASE_BG,
+        ].join(", "),
+        transition: "background 0.45s ease",
       }}
     />
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main component
+// Main export
 // ─────────────────────────────────────────────────────────────────────────────
-export function DreamAntigravityBackground() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  /** Normalised mouse [-1..1, -1..1]; updated imperatively — never causes re-renders */
-  const mousePosRef = useRef({ x: 0, y: 0 });
+interface Props {
+  particleColor?: string;
+  glowColor?: string;
+}
 
-  // Window-level listener: works regardless of pointer-events on any element
+export function DreamAntigravityBackground({
+  particleColor = "#9B7CFF",
+  glowColor = "rgba(155,124,255,0.28)",
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mousePosRef  = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      const x =  (e.clientX / window.innerWidth)  * 2 - 1;
-      const y = -((e.clientY / window.innerHeight) * 2 - 1);
-      mousePosRef.current = { x, y };
-
-      // CSS custom properties drive the glow overlay without triggering React renders
+      mousePosRef.current = {
+        x:  (e.clientX / window.innerWidth)  * 2 - 1,
+        y: -((e.clientY / window.innerHeight) * 2 - 1),
+      };
       if (containerRef.current) {
-        containerRef.current.style.setProperty(
-          "--mouse-x",
-          `${(e.clientX / window.innerWidth) * 100}%`
-        );
-        containerRef.current.style.setProperty(
-          "--mouse-y",
-          `${(e.clientY / window.innerHeight) * 100}%`
-        );
+        containerRef.current.style.setProperty("--mouse-x", `${(e.clientX / window.innerWidth)  * 100}%`);
+        containerRef.current.style.setProperty("--mouse-y", `${(e.clientY / window.innerHeight) * 100}%`);
       }
     };
     window.addEventListener("mousemove", onMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
-  if (!webGLSupported) return <GradientFallback />;
+  if (!webGLSupported) return <GradientFallback glowColor={glowColor} />;
+
+  const bgLayers = [
+    `radial-gradient(circle at 50% 35%, ${withOpacity(glowColor, 0.18)}, transparent 32%)`,
+    `radial-gradient(circle at 50% 72%, ${withOpacity(glowColor, 0.10)}, transparent 38%)`,
+    BASE_BG,
+  ].join(", ");
 
   return (
-    <CanvasErrorBoundary fallback={<GradientFallback />}>
-      {/*
-        pointer-events: none — clicks pass through to page content.
-        Mouse tracking is done at the window level (see above).
-      */}
+    <CanvasErrorBoundary fallback={<GradientFallback glowColor={glowColor} />}>
       <div
         ref={containerRef}
         style={{
@@ -122,44 +130,35 @@ export function DreamAntigravityBackground() {
           inset: 0,
           zIndex: 0,
           pointerEvents: "none",
-          background: GRADIENT_BG,
+          background: bgLayers,
           overflow: "hidden",
+          transition: "background 0.45s ease",
         }}
       >
-        {/* ── Three.js canvas ──────────────────────────────────────────────── */}
-        {/* ── Orbit glow — elliptical bloom centred on the ring, z-index 0 ── */}
+        {/* ── Orbit glow — elliptical bloom centred on the ring ── */}
         <div
           style={{
             position: "absolute",
             left: "50%",
             top: "50%",
             width: 520,
-            height: 260,
+            height: 200,
             transform: "translate(-50%, -12%)",
-            background:
-              "radial-gradient(ellipse, rgba(139,92,255,0.16) 0%, rgba(139,92,255,0.08) 35%, transparent 70%)",
-            filter: "blur(24px)",
+            backgroundColor: withOpacity(glowColor, 0.20),
+            borderRadius: "50%",
+            filter: "blur(44px)",
             pointerEvents: "none",
             zIndex: 0,
+            transition: "background-color 0.45s ease",
           }}
         />
 
+        {/* ── Canvas ── */}
         <Canvas
           camera={{ position: [0, 0, 50], fov: 35 }}
-          dpr={
-            isMobile
-              ? 1
-              : Math.min(
-                  typeof window !== "undefined" ? window.devicePixelRatio : 1,
-                  2
-                )
-          }
-          gl={{
-            antialias: !isMobile,
-            alpha: true,
-            powerPreference: "low-power",
-          }}
-          style={{ width: "100%", height: "100%", pointerEvents: "none", zIndex: 0, position: "relative" }}
+          dpr={isMobile ? 1 : Math.min(typeof window !== "undefined" ? window.devicePixelRatio : 1, 2)}
+          gl={{ antialias: !isMobile, alpha: true, powerPreference: "low-power" }}
+          style={{ width: "100%", height: "100%", pointerEvents: "none", position: "relative", zIndex: 0 }}
         >
           <Antigravity
             count={isMobile ? 180 : 360}
@@ -169,7 +168,7 @@ export function DreamAntigravityBackground() {
             waveAmplitude={1.25}
             particleSize={isMobile ? 1.7 : 2.25}
             lerpSpeed={0.08}
-            color="#9B7CFF"
+            color={particleColor}
             rotationSpeed={0.045}
             depthFactor={1.1}
             pulseSpeed={3.2}
@@ -180,12 +179,7 @@ export function DreamAntigravityBackground() {
           />
         </Canvas>
 
-        {/* ── Mouse glow overlay ───────────────────────────────────────────── */}
-        {/*
-          Uses CSS custom properties set imperatively (no React re-renders).
-          mix-blend-mode: screen lets the glow bloom over the dark background.
-          pointer-events: none ensures it never intercepts clicks.
-        */}
+        {/* ── Mouse glow overlay (CSS-var driven, no React re-renders) ── */}
         <div
           style={{
             position: "absolute",
@@ -195,14 +189,14 @@ export function DreamAntigravityBackground() {
             background: [
               "radial-gradient(",
               "  circle at var(--mouse-x, 50%) var(--mouse-y, 50%),",
-              "  rgba(139,92,255,0.28)  0%,",
-              "  rgba(139,92,255,0.16) 12%,",
-              "  rgba(139,92,255,0.06) 26%,",
+              `  ${withOpacity(glowColor, 0.26)}  0%,`,
+              `  ${withOpacity(glowColor, 0.14)} 12%,`,
+              `  ${withOpacity(glowColor, 0.05)} 26%,`,
               "  transparent 45%",
               ")",
             ].join(""),
             mixBlendMode: "screen" as const,
-            transition: "background 0.08s linear",
+            transition: "opacity 0.45s ease",
           }}
         />
       </div>
