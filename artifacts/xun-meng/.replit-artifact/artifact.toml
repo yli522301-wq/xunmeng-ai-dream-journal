@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "巡梦 - AI Dream Journal"
+version = "1.0.0"
+id = "artifacts/xun-meng"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22290
+
+[services.development]
+run = "pnpm --filter @workspace/xun-meng run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/xun-meng", "run", "build" ]
+publicDir = "artifacts/xun-meng/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22290"
+BASE_PATH = "/"

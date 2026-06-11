@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: 巡梦 Dream Journal API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dreams
+    description: Dream record operations
+  - name: ai
+    description: AI operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,189 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dreams:
+    get:
+      operationId: listDreams
+      tags: [dreams]
+      summary: List all dream records
+      responses:
+        "200":
+          description: List of dreams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dream"
+    post:
+      operationId: createDream
+      tags: [dreams]
+      summary: Create a new dream record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DreamInput"
+      responses:
+        "201":
+          description: Created dream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dream"
+
+  /dreams/{id}:
+    get:
+      operationId: getDream
+      tags: [dreams]
+      summary: Get a dream record by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dream record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dream"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateDream
+      tags: [dreams]
+      summary: Update a dream record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DreamUpdate"
+      responses:
+        "200":
+          description: Updated dream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dream"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteDream
+      tags: [dreams]
+      summary: Delete a dream record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /dreams/stats/summary:
+    get:
+      operationId: getDreamStats
+      tags: [dreams]
+      summary: Get dream statistics summary
+      responses:
+        "200":
+          description: Dream statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DreamStats"
+
+  /ai/organize:
+    post:
+      operationId: aiOrganizeDream
+      tags: [ai]
+      summary: Use AI to organize and analyze a dream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiOrganizeInput"
+      responses:
+        "200":
+          description: AI organized dream analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiOrganizeResult"
+
+  /ai/chat:
+    post:
+      operationId: aiChat
+      tags: [ai]
+      summary: Send a message to the AI dream observer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatInput"
+      responses:
+        "200":
+          description: AI chat response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatResult"
+
+  /ai/recognize-image:
+    post:
+      operationId: aiRecognizeImage
+      tags: [ai]
+      summary: Use AI to recognize and extract dream content from an image
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiImageInput"
+      responses:
+        "200":
+          description: AI image recognition result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiImageResult"
+
+  /ai/settings:
+    get:
+      operationId: getAiSettings
+      tags: [ai]
+      summary: Get current AI configuration/mode
+      responses:
+        "200":
+          description: AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +221,270 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    Dream:
+      type: object
+      required:
+        - id
+        - title
+        - content
+        - mood
+        - clarity
+        - isRecurring
+        - createdAt
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        mood:
+          type: string
+          enum: [calm, anxious, happy, fearful, confused, nostalgic, strange]
+        clarity:
+          type: string
+          enum: [vague, moderate, vivid]
+        isRecurring:
+          type: boolean
+        createdAt:
+          type: string
+        summary:
+          type: ["string", "null"]
+        keywords:
+          type: array
+          items:
+            type: string
+        emotionAnalysis:
+          type: ["string", "null"]
+        possibleConnection:
+          type: ["string", "null"]
+        aiResponse:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+
+    DreamInput:
+      type: object
+      required:
+        - title
+        - content
+        - mood
+        - clarity
+        - isRecurring
+      properties:
+        title:
+          type: string
+          minLength: 1
+        content:
+          type: string
+          minLength: 1
+        mood:
+          type: string
+          enum: [calm, anxious, happy, fearful, confused, nostalgic, strange]
+        clarity:
+          type: string
+          enum: [vague, moderate, vivid]
+        isRecurring:
+          type: boolean
+        summary:
+          type: ["string", "null"]
+        keywords:
+          type: array
+          items:
+            type: string
+        emotionAnalysis:
+          type: ["string", "null"]
+        possibleConnection:
+          type: ["string", "null"]
+        aiResponse:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+
+    DreamUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        content:
+          type: string
+        mood:
+          type: string
+          enum: [calm, anxious, happy, fearful, confused, nostalgic, strange]
+        clarity:
+          type: string
+          enum: [vague, moderate, vivid]
+        isRecurring:
+          type: boolean
+        summary:
+          type: ["string", "null"]
+        keywords:
+          type: array
+          items:
+            type: string
+        emotionAnalysis:
+          type: ["string", "null"]
+        possibleConnection:
+          type: ["string", "null"]
+        aiResponse:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+
+    DreamStats:
+      type: object
+      required:
+        - total
+        - moodBreakdown
+        - clarityBreakdown
+        - recurringCount
+        - recentKeywords
+      properties:
+        total:
+          type: integer
+        moodBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        clarityBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        recurringCount:
+          type: integer
+        recentKeywords:
+          type: array
+          items:
+            type: string
+
+    AiOrganizeInput:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+        title:
+          type: ["string", "null"]
+
+    AiOrganizeResult:
+      type: object
+      required:
+        - summary
+        - keywords
+        - emotionAnalysis
+        - possibleConnection
+        - aiResponse
+        - isMock
+      properties:
+        summary:
+          type: string
+        keywords:
+          type: array
+          items:
+            type: string
+        emotionAnalysis:
+          type: string
+        possibleConnection:
+          type: string
+        aiResponse:
+          type: string
+        isMock:
+          type: boolean
+
+    AiChatInput:
+      type: object
+      required:
+        - message
+        - history
+      properties:
+        message:
+          type: string
+        dreamContext:
+          type: ["string", "null"]
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+
+    AiChatResult:
+      type: object
+      required:
+        - reply
+        - isMock
+      properties:
+        reply:
+          type: string
+        isMock:
+          type: boolean
+
+    AiImageInput:
+      type: object
+      required:
+        - imageBase64
+      properties:
+        imageBase64:
+          type: string
+        mimeType:
+          type: string
+
+    AiImageResult:
+      type: object
+      required:
+        - description
+        - recognizedText
+        - dreamElements
+        - suggestedTitle
+        - draftContent
+        - isMock
+      properties:
+        description:
+          type: string
+        recognizedText:
+          type: string
+        dreamElements:
+          type: array
+          items:
+            type: string
+        suggestedTitle:
+          type: string
+        draftContent:
+          type: string
+        isMock:
+          type: boolean
+
+    AiSettings:
+      type: object
+      required:
+        - mode
+        - hasApiKey
+        - modelName
+      properties:
+        mode:
+          type: string
+          enum: [mock, real]
+        hasApiKey:
+          type: boolean
+        modelName:
+          type: string
