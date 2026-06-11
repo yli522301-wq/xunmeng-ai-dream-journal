@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, LayoutList, Sparkles } from "lucide-react";
+import { ArrowLeft, LayoutList, Sparkles, Telescope } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
 // @ts-ignore
 import CircularGallery from "@/components/CircularGallery.jsx";
@@ -175,26 +175,47 @@ export default function DreamCorridor() {
           </p>
         </motion.div>
 
-        {/* Right: go to list */}
-        <motion.button
-          onClick={() => setLocation("/archive/list")}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full mt-0.5"
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.09)",
-            backdropFilter: "blur(12px)",
-          }}
-          whileHover={{ background: "rgba(255,255,255,0.10)", borderColor: "rgba(255,255,255,0.16)" }}
-          whileTap={{ scale: 0.94 }}
+        {/* Right: dream-map + list */}
+        <motion.div
+          className="flex items-center gap-2 mt-0.5"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.35 }}
         >
-          <LayoutList size={11} style={{ color: "rgba(255,255,255,0.38)" }} />
-          <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.34)" }}>
-            全部梦境
-          </span>
-        </motion.button>
+          <motion.button
+            onClick={() => setLocation("/dream-map")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+            style={{
+              background: "rgba(107,140,255,0.07)",
+              border: "1px solid rgba(107,140,255,0.16)",
+              backdropFilter: "blur(12px)",
+            }}
+            whileHover={{ background: "rgba(107,140,255,0.14)", borderColor: "rgba(107,140,255,0.28)" }}
+            whileTap={{ scale: 0.94 }}
+          >
+            <Telescope size={11} style={{ color: "rgba(107,140,255,0.60)" }} />
+            <span className="text-[10px] tracking-wide" style={{ color: "rgba(107,140,255,0.55)" }}>
+              梦境星图
+            </span>
+          </motion.button>
+
+          <motion.button
+            onClick={() => setLocation("/archive/list")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.09)",
+              backdropFilter: "blur(12px)",
+            }}
+            whileHover={{ background: "rgba(255,255,255,0.10)", borderColor: "rgba(255,255,255,0.16)" }}
+            whileTap={{ scale: 0.94 }}
+          >
+            <LayoutList size={11} style={{ color: "rgba(255,255,255,0.38)" }} />
+            <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.34)" }}>
+              全部梦境
+            </span>
+          </motion.button>
+        </motion.div>
       </div>
 
       {/* ── Bottom gradient scrim ── */}
