@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
-  const isDreamSpace = location === "/";
+  const isDreamSpace = location === "/" || location.startsWith("/archive");
 
   return (
     <div className="min-h-[100dvh] w-full bg-background flex flex-col relative overflow-hidden dark">

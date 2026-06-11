@@ -3,8 +3,8 @@ import {
   useGetActiveCharacter, useListCharacters, useActivateCharacter,
   useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
-import { Link } from "wouter";
-import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
@@ -194,6 +194,7 @@ function saveAvatars(a: Record<CharKey, string | null>) {
 // ── Component ───────────────────────────────────────────────────────────────
 export default function DreamSpace() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const { data: activeChar, refetch: refetchActive } = useGetActiveCharacter();
   const { data: characters } = useListCharacters();
@@ -565,9 +566,12 @@ export default function DreamSpace() {
       return;
     }
     const firstUser = userMessages[0].content;
-    const title = firstUser.slice(0, 12) + (firstUser.length > 12 ? "…" : "");
+    const title = firstUser === "[图片]"
+      ? "一段无言的梦"
+      : firstUser.slice(0, 14) + (firstUser.length > 14 ? "…" : "");
     const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
     const summary = lastAiMsg?.content ?? firstUser;
+    const coverImage = messages.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
     const dream = {
       id: genId(),
       title,
@@ -577,12 +581,14 @@ export default function DreamSpace() {
       messages,
       summary,
       mood: "朦胧",
+      coverImage,
     };
     try {
       const existing: unknown[] = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]");
       existing.push(dream);
       localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(existing));
-      toast({ title: "这段梦，已经被收进梦里了。" });
+      toast({ title: "这段梦，已收入档案。" });
+      setTimeout(() => setLocation("/archive"), 600);
     } catch {
       toast({ title: "保存失败", variant: "destructive" });
     }
@@ -673,13 +679,25 @@ export default function DreamSpace() {
           })}
         </div>
 
-        <button onClick={handleSaveDream}
-          className="text-[11px] tracking-wider transition-colors"
-          style={{ color: "rgba(255,255,255,0.18)" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.5)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.18)")}>
-          保存
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setLocation("/archive")}
+            className="transition-opacity"
+            title="梦之档案"
+            style={{ color: "rgba(255,255,255,0.14)" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.40)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.14)")}
+          >
+            <BookOpen size={15} />
+          </button>
+          <button onClick={handleSaveDream}
+            className="text-[11px] tracking-wider transition-colors"
+            style={{ color: "rgba(255,255,255,0.18)" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.5)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.18)")}>
+            保存
+          </button>
+        </div>
       </header>
 
       {/* ── CENTER SOUL AREA ── */}
