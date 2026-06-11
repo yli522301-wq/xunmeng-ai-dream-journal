@@ -29,6 +29,7 @@ export interface ChatMessage {
   type?: "text" | "image" | "audio";
   content: string;
   imageUrl?: string;
+  thumbnailUrl?: string;
   audioUrl?: string;
   audioDuration?: number;
   transcription?: string;
@@ -172,6 +173,34 @@ function messagesToApiHistory(msgs: ChatMessage[]) {
     role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
     content: m.role === "user" ? m.content : `[${CHAR_MAP[m.role as CharKey]?.name ?? m.role}] ${m.content}`,
   }));
+}
+
+// ── Image compression utility ──────────────────────────────────────────────
+/**
+ * Resize + compress an image DataURL to a JPEG of at most `maxWidth` px wide.
+ * Returns the compressed DataURL, or the original if compression fails / makes it larger.
+ */
+function compressImage(dataUrl: string, maxWidth: number, quality = 0.65): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const ratio = Math.min(1, maxWidth / img.naturalWidth);
+      const w = Math.round(img.naturalWidth  * ratio);
+      const h = Math.round(img.naturalHeight * ratio);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width  = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        const out = canvas.toDataURL("image/jpeg", quality);
+        resolve(out.length < dataUrl.length ? out : dataUrl);
+      } catch { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicType }> = {
@@ -436,11 +465,19 @@ export default function DreamSpace() {
     setThinkingMsg(THINKING_MSG[activeKey]);
     setIsThinking(true);
 
+    // Generate a small thumbnail (240 px) for fallback saves; imageUrl is
+    // already a 600 px cardCover compressed at upload time.
+    let thumbnailUrl: string | undefined;
+    if (imgUrl) {
+      try { thumbnailUrl = await compressImage(imgUrl, 240, 0.50); } catch { /* ignore */ }
+    }
+
     const userMsg: ChatMessage = {
       id: genId(), role: "user",
       type: voiceData ? "audio" : (imgUrl ? "image" : "text"),
       content: msg || (imgUrl ? "[图片]" : ""),
       imageUrl: imgUrl ?? undefined,
+      thumbnailUrl,
       audioUrl: voiceData?.audioUrl,
       audioDuration: voiceData?.duration,
       transcription: voiceData ? (msg || undefined) : undefined,
@@ -574,10 +611,13 @@ export default function DreamSpace() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (dataUrl) setPendingImageDataUrl(dataUrl);
-      else toast({ title: "图片没有载入成功，请重新选择。" });
+    reader.onload = async (ev) => {
+      const raw = ev.target?.result as string;
+      if (!raw) { toast({ title: "图片没有载入成功，请重新选择。" }); return; }
+      // Compress to card-cover size immediately on upload so the in-memory
+      // DataURL and the saved imageUrl are always a manageable JPEG.
+      const compressed = await compressImage(raw, 600, 0.62);
+      setPendingImageDataUrl(compressed);
     };
     reader.onerror = () => toast({ title: "图片没有载入成功，请重新选择。" });
     reader.readAsDataURL(file);
@@ -635,12 +675,17 @@ export default function DreamSpace() {
       : firstUser.slice(0, 14) + (firstUser.length > 14 ? "…" : "");
     const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
     const summary = lastAiMsg?.content ?? firstUser;
-    const coverImage = messages.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
-    // Strip audio blobs before saving (base64 audio can exceed localStorage 5 MB quota).
-    // Keep all metadata (type, duration, transcription) so the detail page still renders voice cards.
-    const messagesForStorage = messages.map(m =>
-      m.audioUrl ? { ...m, audioUrl: undefined } : m
-    );
+
+    // Strip audio blobs; keep type/duration/transcription for voice card display.
+    // Strip thumbnailUrl from storage (only needed as in-memory fallback handle).
+    const messagesForStorage = messages.map(m => {
+      const { audioUrl: _a, thumbnailUrl: _t, ...rest } = m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
+      return rest;
+    });
+
+    // coverImage: first user image message (already compressed to 600 px at upload).
+    const coverImage = messagesForStorage.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
+
     const dream = {
       id: genId(),
       title,
@@ -652,13 +697,43 @@ export default function DreamSpace() {
       mood: "朦胧",
       coverImage,
     };
+
+    let existing: unknown[] = [];
+    try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
+
+    // ── Tier 1: Full save (images already 600 px JPEG from upload) ────────────
     try {
-      const existing: unknown[] = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]");
-      existing.push(dream);
-      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(existing));
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream]));
+      setLocation("/archive");
+      return;
+    } catch { /* quota exceeded — fall through */ }
+
+    // ── Tier 2: Replace imageUrls with thumbnails (240 px) ───────────────────
+    const tier2Messages = messages.map(m => {
+      const thumb = m.thumbnailUrl ?? m.imageUrl;
+      const { audioUrl: _a, thumbnailUrl: _t, ...rest } = m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
+      return m.type === "image" ? { ...rest, imageUrl: thumb } : rest;
+    });
+    const dream2 = { ...dream, messages: tier2Messages,
+      coverImage: tier2Messages.find(m => m.role === "user" && (m as ChatMessage).imageUrl)?.imageUrl as string | undefined };
+    try {
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream2]));
+      toast({ title: "图片较大，已为你保存压缩版梦境。" });
+      setLocation("/archive");
+      return;
+    } catch { /* still failing — fall through */ }
+
+    // ── Tier 3: Strip all images from messages, keep coverImage only ─────────
+    const tier3Messages = messagesForStorage.map(m =>
+      m.type === "image" ? { ...m, imageUrl: undefined } : m
+    );
+    const dream3 = { ...dream, messages: tier3Messages };
+    try {
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream3]));
+      toast({ title: "图片较大，已为你保存梦境文字与封面。" });
       setLocation("/archive");
     } catch {
-      toast({ title: "保存失败", variant: "destructive" });
+      toast({ title: "保存失败，请清除部分旧梦境后重试。", variant: "destructive" });
     }
   };
 
