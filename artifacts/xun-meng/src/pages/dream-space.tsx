@@ -152,12 +152,11 @@ export default function DreamSpace() {
   const createDreamMutation = useCreateDream();
   const recognizeMutation   = useAiRecognizeImage();
 
-  const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
-  const [inputText,     setInputText]     = useState("");
-  const [isListening,   setIsListening]   = useState(false);
-  const [isThinking,    setIsThinking]    = useState(false);
-  const [responseMode,  setResponseMode]  = useState<ResponseMode>("solo");
-  const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
+  const [messages,    setMessages]    = useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [inputText,   setInputText]   = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [isThinking,  setIsThinking]  = useState(false);
+  const [avatars,     setAvatars]     = useState<Record<CharKey, string | null>>(loadAvatars);
 
   const [atmosphereOpen, setAtmosphereOpen] = useState(false);
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
@@ -264,67 +263,13 @@ export default function DreamSpace() {
     const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
 
     try {
-      // ── Solo mode ──────────────────────────────────────────────────────
-      if (responseMode === "solo") {
-        const res = await chatMutation.mutateAsync({
-          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
-        });
-        const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
-        setMessages(prev => [...prev, reply]);
-        speak(res.reply);
-      }
-
-      // ── Multi mode ────────────────────────────────────────────────────
-      else if (responseMode === "multi") {
-        // Active char first
-        const res1 = await chatMutation.mutateAsync({
-          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
-        });
-        const reply1: ChatMessage = { id: genId(), role: activeKey, content: res1.reply, timestamp: nowTime() };
-        setMessages(prev => [...prev, reply1]);
-        speak(res1.reply);
-
-        // Other two chars — brief supplement
-        const otherKeys = ALL_KEYS.filter(k => k !== activeKey);
-        for (const k of otherKeys) {
-          const cfg = CHAR_MAP[k];
-          const supplementPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[activeKey].name}刚才对这个梦说："${res1.reply}"\n\n请从你的风格角度补充一到两句不同的视角，简短有风格，不要重复${CHAR_MAP[activeKey].name}的意思。`;
-          const res = await chatMutation.mutateAsync({
-            data: { message: msg, history: apiHistory, characterSystemPrompt: supplementPrompt },
-          });
-          const reply: ChatMessage = { id: genId(), role: k, content: res.reply, timestamp: nowTime() };
-          setMessages(prev => [...prev, reply]);
-        }
-      }
-
-      // ── Cross / 互评 mode ─────────────────────────────────────────────
-      else if (responseMode === "cross") {
-        const ordered: CharKey[] = [activeKey, ...ALL_KEYS.filter(k => k !== activeKey)];
-        const replies: { key: CharKey; content: string }[] = [];
-
-        for (const k of ordered) {
-          const cfg = CHAR_MAP[k];
-          let systemPrompt: string;
-
-          if (replies.length === 0) {
-            systemPrompt = getSystemPrompt(k);
-          } else if (replies.length === 1) {
-            const [r1] = replies;
-            systemPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[r1.key].name}说："${r1.content}"\n\n请从你的角度回应这个分析，可以同意、轻微调侃或表示不同意，保持友好梦境感。2-3句话，有你独特的风格。`;
-          } else {
-            const [r1, r2] = replies;
-            systemPrompt = `${cfg.stylePrompt}\n\n${CHAR_MAP[r1.key].name}说："${r1.content}"\n${CHAR_MAP[r2.key].name}说："${r2.content}"\n\n请用你的风格简短评论两位的观点，可以调侃、补充或总结。2-3句话，保持温和梦境感。`;
-          }
-
-          const res = await chatMutation.mutateAsync({
-            data: { message: msg, history: apiHistory, characterSystemPrompt: systemPrompt },
-          });
-          replies.push({ key: k, content: res.reply });
-          const reply: ChatMessage = { id: genId(), role: k, content: res.reply, timestamp: nowTime() };
-          setMessages(prev => [...prev, reply]);
-          if (k === activeKey) speak(res.reply);
-        }
-      }
+      // Current active character replies, with full shared history as context
+      const res = await chatMutation.mutateAsync({
+        data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
+      });
+      const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
+      setMessages(prev => [...prev, reply]);
+      speak(res.reply);
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -592,28 +537,6 @@ export default function DreamSpace() {
       {/* ── BOTTOM INPUT ZONE ── */}
       <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-3 flex-shrink-0"
         style={{ zIndex: 30, position: "relative" }}>
-
-        {/* Response mode selector */}
-        <div className="flex items-center gap-1 w-full justify-center">
-          {(["solo", "multi", "cross"] as ResponseMode[]).map(mode => {
-            const labels: Record<ResponseMode, string> = { solo: "单人回应", multi: "多人回应", cross: "互评模式" };
-            const active = responseMode === mode;
-            return (
-              <button key={mode} onClick={() => setResponseMode(mode)}
-                style={{
-                  padding: "3px 10px", borderRadius: 999, fontSize: 10,
-                  letterSpacing: "0.08em",
-                  background: active ? "rgba(255,255,255,0.07)" : "transparent",
-                  border: `1px solid ${active ? "rgba(255,255,255,0.10)" : "transparent"}`,
-                  color: active ? `rgba(255,255,255,0.55)` : "rgba(255,255,255,0.18)",
-                  transition: "all 0.2s ease",
-                  cursor: "pointer", outline: "none",
-                }}>
-                {labels[mode]}
-              </button>
-            );
-          })}
-        </div>
 
         {/* Text input + image */}
         <div className="w-full flex items-center gap-3">
