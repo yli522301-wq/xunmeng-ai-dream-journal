@@ -15,6 +15,8 @@ interface HistoryPanelProps {
   charMap: Record<string, CharInfo>;
   avatars: Record<string, string | null>;
   onAvatarChange: (key: CharKey, dataUrl: string) => void;
+  typingMsgId?: string | null;
+  typingContent?: string;
 }
 
 const CONTENT_H = 340;
@@ -89,6 +91,7 @@ function DreamSphereAvatar({
 // ── Single message bubble ──────────────────────────────────────────────────
 function MessageBubble({
   msg, charMap, avatars, onAvatarChange, fileInputRef, avatarUploadTarget, setAvatarUploadTarget,
+  typingMsgId, typingContent,
 }: {
   msg: ChatMessage;
   charMap: Record<string, CharInfo>;
@@ -97,6 +100,8 @@ function MessageBubble({
   fileInputRef: React.RefObject<HTMLInputElement>;
   avatarUploadTarget: string | null;
   setAvatarUploadTarget: (k: string | null) => void;
+  typingMsgId?: string | null;
+  typingContent?: string;
 }) {
   const isUser = msg.role === "user";
 
@@ -169,7 +174,23 @@ function MessageBubble({
             color: "rgba(255,255,255,0.60)",
           }}
         >
-          <p className="whitespace-pre-wrap">{msg.content}</p>
+          {(() => {
+            const isTyping = typingMsgId === msg.id;
+            const shown = isTyping ? (typingContent ?? "") : msg.content;
+            return (
+              <p className="whitespace-pre-wrap">
+                {shown}
+                {isTyping && (
+                  <motion.span
+                    className="inline-block w-[1px] h-[1em] ml-[1px] align-middle rounded-full"
+                    style={{ backgroundColor: color, opacity: 0.7 }}
+                    animate={{ opacity: [0.7, 0, 0.7] }}
+                    transition={{ duration: 0.8, repeat: Infinity }}
+                  />
+                )}
+              </p>
+            );
+          })()}
           <p className="mt-1 text-[9px] tracking-wider" style={{ color: "rgba(255,255,255,0.18)" }}>
             {msg.timestamp}
           </p>
@@ -180,7 +201,7 @@ function MessageBubble({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange }: HistoryPanelProps) {
+export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange, typingMsgId, typingContent }: HistoryPanelProps) {
   const [isOpen,            setIsOpen]            = useState(false);
   const [avatarUploadTarget, setAvatarUploadTarget] = useState<string | null>(null);
   const scrollRef   = useRef<HTMLDivElement>(null);
@@ -297,6 +318,8 @@ export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange 
                     fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
                     avatarUploadTarget={avatarUploadTarget}
                     setAvatarUploadTarget={setAvatarUploadTarget}
+                    typingMsgId={typingMsgId}
+                    typingContent={typingContent}
                   />
                 ))
               )}

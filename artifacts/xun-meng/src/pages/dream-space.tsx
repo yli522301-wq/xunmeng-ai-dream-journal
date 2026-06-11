@@ -210,9 +210,33 @@ export default function DreamSpace() {
   const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
 
   // Use a ref for voiceStatus so recognition callbacks never see stale state
-  const voiceStatusRef  = useRef<VoiceStatus>("idle");
-  const transcriptRef   = useRef<string | null>(null);
-  const handleSendRef   = useRef<(text?: string) => Promise<void>>(async () => {});
+  const voiceStatusRef       = useRef<VoiceStatus>("idle");
+  const transcriptRef        = useRef<string | null>(null);
+  const handleSendRef        = useRef<(text?: string) => Promise<void>>(async () => {});
+  const requestingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingIntervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [typingMsgId,   setTypingMsgId]   = useState<string | null>(null);
+  const [typingContent, setTypingContent] = useState<string>("");
+
+  function startTypewriter(msgId: string, fullText: string) {
+    if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
+    setTypingMsgId(msgId);
+    setTypingContent("");
+    let idx = 0;
+    const INTERVAL = 38;
+    typingIntervalRef.current = setInterval(() => {
+      idx += 1;
+      if (idx >= fullText.length) {
+        setTypingContent(fullText);
+        clearInterval(typingIntervalRef.current!);
+        typingIntervalRef.current = null;
+        setTypingMsgId(null);
+      } else {
+        setTypingContent(fullText.slice(0, idx));
+      }
+    }, INTERVAL);
+  }
 
   function setVoiceStatus(s: VoiceStatus) {
     voiceStatusRef.current = s;
@@ -251,6 +275,10 @@ export default function DreamSpace() {
     r.lang            = "zh-CN";
 
     r.onstart = () => {
+      if (requestingTimeoutRef.current) {
+        clearTimeout(requestingTimeoutRef.current);
+        requestingTimeoutRef.current = null;
+      }
       setVoiceStatus("recording");
     };
 
@@ -264,13 +292,16 @@ export default function DreamSpace() {
     };
 
     r.onerror = (e: any) => {
+      if (requestingTimeoutRef.current) {
+        clearTimeout(requestingTimeoutRef.current);
+        requestingTimeoutRef.current = null;
+      }
       transcriptRef.current = null;
       const prev = voiceStatusRef.current;
       setVoiceStatus("idle");
       if (e.error === "not-allowed" || e.error === "permission-denied") {
         toast({ title: "没有获得麦克风权限，你也可以直接输入梦境。" });
       } else if (prev !== "idle") {
-        // Other error — silently fall back
         toast({ title: "我没有听清楚，已为你使用示例梦境继续。" });
         setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
       }
@@ -331,7 +362,7 @@ export default function DreamSpace() {
     return null;
   }, [messages, activeKey]);
 
-  const isSpeaking = !!displayReply && !isThinking;
+  const isSpeaking = (!!displayReply && !isThinking) || !!typingMsgId;
   const hsl        = charConfig.hsl;
 
   // ── Tab switch ───────────────────────────────────────────────────────────
@@ -378,6 +409,7 @@ export default function DreamSpace() {
         const replyContent = getMockReply(activeKey, msg, updatedMsgs);
         const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
         setMessages(prev => [...prev, reply]);
+        startTypewriter(reply.id, replyContent);
         speak(replyContent);
       } else {
         const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
@@ -386,6 +418,7 @@ export default function DreamSpace() {
         });
         const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
         setMessages(prev => [...prev, reply]);
+        startTypewriter(reply.id, res.reply);
         speak(res.reply);
       }
     } catch {
@@ -423,14 +456,26 @@ export default function DreamSpace() {
 
     // Start real recording
     setVoiceStatus("requesting");
+    // Safety net: if onstart never fires within 3s, fall back to mock
+    requestingTimeoutRef.current = setTimeout(() => {
+      if (voiceStatusRef.current === "requesting") {
+        toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
+        setVoiceStatus("idle");
+        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+      }
+    }, 3000);
     try {
       recognitionRef.current.start();
       // onstart will transition to "recording"
     } catch {
       // Already running or other error — reset and try fallback
+      if (requestingTimeoutRef.current) {
+        clearTimeout(requestingTimeoutRef.current);
+        requestingTimeoutRef.current = null;
+      }
       setVoiceStatus("idle");
       toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
-      setTimeout(() => handleSend(FALLBACK_TRANSCRIPT), 300);
+      setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 300);
     }
   };
 
@@ -643,9 +688,23 @@ export default function DreamSpace() {
                   border: `1px solid hsl(${hsl} / 0.10)`,
                   boxShadow: `0 2px 28px hsl(${hsl} / 0.05)`,
                 }}>
-                <p className="text-[14px] leading-[1.8] whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.72)" }}>
-                  {displayReply.content}
-                </p>
+                {(() => {
+                  const isTyping = typingMsgId === displayReply.id;
+                  const shown = isTyping ? typingContent : displayReply.content;
+                  return (
+                    <p className="text-[14px] leading-[1.8] whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.72)" }}>
+                      {shown}
+                      {isTyping && (
+                        <motion.span
+                          className="inline-block w-[2px] h-[1em] ml-[2px] align-middle rounded-full"
+                          style={{ backgroundColor: charConfig.particleColor, opacity: 0.7 }}
+                          animate={{ opacity: [0.7, 0, 0.7] }}
+                          transition={{ duration: 0.8, repeat: Infinity }}
+                        />
+                      )}
+                    </p>
+                  );
+                })()}
                 <p className="mt-3 text-[9px] tracking-[0.22em]" style={{ color: "rgba(255,255,255,0.16)" }}>
                   {displayReply.timestamp}
                 </p>
@@ -682,6 +741,8 @@ export default function DreamSpace() {
           charMap={Object.fromEntries(DREAM_CHARS.map(c => [c.key, { name: c.name, enName: c.enName, particleColor: c.particleColor }]))}
           avatars={avatars}
           onAvatarChange={handleAvatarChange}
+          typingMsgId={typingMsgId}
+          typingContent={typingContent}
         />
       )}
 
