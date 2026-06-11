@@ -14,6 +14,7 @@ import { AtmospherePanel } from "@/components/atmosphere-panel";
 import { AmbientBg, type BgTheme } from "@/components/ambient-bg";
 import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
+import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function getColor(name: string): CompanionColor {
@@ -262,7 +263,10 @@ export default function DreamSpace() {
   return (
     <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">
 
-      {/* Ambient background */}
+      {/* Particle ring — base layer, always present */}
+      <DreamAntigravityBackground />
+
+      {/* Scene-specific ambient overlay (rain/night/fog/stars) */}
       <AmbientBg theme={bgTheme} />
 
       {/* Character colour bloom */}
