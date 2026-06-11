@@ -89,16 +89,17 @@ function VoiceCard({
           minWidth: "180px",
         }}
       >
-        {/* Play/Pause button */}
+        {/* Play/Pause button — only active when a real audioUrl exists */}
         <button
           onClick={hasAudio ? togglePlay : undefined}
-          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-opacity"
+          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
           style={{
-            background: `hsl(${cs.hsl} / 0.18)`,
-            border: `1px solid hsl(${cs.hsl} / 0.28)`,
-            cursor: hasAudio ? "pointer" : "not-allowed",
-            opacity: hasAudio ? 1 : 0.4,
+            background: `hsl(${cs.hsl} / ${hasAudio ? "0.18" : "0.07"})`,
+            border: `1px solid hsl(${cs.hsl} / ${hasAudio ? "0.28" : "0.12"})`,
+            cursor: hasAudio ? "pointer" : "default",
+            opacity: hasAudio ? 1 : 0.38,
           }}
+          title={hasAudio ? undefined : "Demo 暂不支持回放原音"}
         >
           {isPlaying
             ? <Pause size={11} style={{ color: `hsl(${cs.hsl})` }} />
@@ -118,6 +119,13 @@ function VoiceCard({
         </span>
       </div>
 
+      {/* No-audio hint */}
+      {!hasAudio && (
+        <p className="px-1 text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.16)" }}>
+          Demo 暂不支持回放原音
+        </p>
+      )}
+
       {/* Transcription subtitle */}
       {msg.content && msg.content !== "" && (
         <div className="flex items-start gap-1.5 px-1">
@@ -131,8 +139,8 @@ function VoiceCard({
         </div>
       )}
 
-      {/* Hidden audio */}
-      {msg.audioUrl && (
+      {/* Hidden audio — only rendered when URL exists to avoid any src errors */}
+      {hasAudio && (
         <audio ref={audioRef} src={msg.audioUrl} preload="auto" style={{ display: "none" }} />
       )}
     </div>
