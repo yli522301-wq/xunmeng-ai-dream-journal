@@ -1,163 +1,140 @@
 import { useState, useRef, useEffect } from "react";
-import { useGetActiveCharacter, useListCharacters, useActivateCharacter, useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage } from "@workspace/api-client-react";
-import { Link, useLocation } from "wouter";
-import { ArrowLeft, Mic, Square, Image as ImageIcon, Send } from "lucide-react";
+import {
+  useGetActiveCharacter, useListCharacters, useActivateCharacter,
+  useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage,
+} from "@workspace/api-client-react";
+import { Link } from "wouter";
+import { ArrowLeft, Mic, Square, Image as ImageIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
 import { AudioWaveform } from "@/components/audio-waveform";
 
-const CHIP_POOL = [
-  "我梦见深夜下雨", "一扇沉重的铁制大门", "感觉自己在悬浮飞行", "小时候的自己在招手",
-  "一条没有尽头的走廊", "镜子里的我在哭", "被一种光追着跑", "一片很安静的海",
-  "站在楼顶往下看", "一个陌生又熟悉的声音", "找不到回家的路", "梦见一个已经离开的人"
+const CHIPS = [
+  "小时候的自己在招手",
+  "被一种光追着跑",
+  "站在楼顶往下看",
+  "一条没有尽头的走廊",
 ];
 
-function getRandomChips(count: number) {
-  const shuffled = [...CHIP_POOL].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
+function getColor(name: string): CompanionColor {
+  if (name.includes("阿暖")) return "amber";
+  if (name.includes("暮歌")) return "indigo";
+  if (name.includes("岛深")) return "teal";
+  return "purple";
 }
 
+function getEnName(name: string) {
+  if (name.includes("阿暖")) return "Anuan";
+  if (name.includes("暮歌")) return "Muge";
+  if (name.includes("岛深")) return "Daoshan";
+  return "";
+}
+
+function getPrefix(name: string) {
+  if (name.includes("阿暖")) return "●";
+  if (name.includes("暮歌")) return "☽";
+  if (name.includes("岛深")) return "✦";
+  return "●";
+}
+
+function getIdleQuote(name: string) {
+  if (name.includes("阿暖")) return "正在静静听你梦里的风";
+  if (name.includes("暮歌")) return "等你告诉它你刚醒来看见了什么";
+  if (name.includes("岛深")) return "帮你梳理那些混沌的线索";
+  return "在等你说那个梦";
+}
+
+const COLOR_HSL: Record<CompanionColor, string> = {
+  amber:  "38 90% 60%",
+  indigo: "240 70% 65%",
+  teal:   "185 70% 55%",
+  purple: "255 90% 70%",
+};
+
 export default function DreamSpace() {
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  
+
   const { data: activeChar, refetch: refetchActive } = useGetActiveCharacter();
   const { data: characters } = useListCharacters();
   const { data: settings } = useGetAiSettings();
-  const activateMutation = useActivateCharacter();
-  const chatMutation = useAiChat();
+  const activateMutation  = useActivateCharacter();
+  const chatMutation      = useAiChat();
   const createDreamMutation = useCreateDream();
   const recognizeMutation = useAiRecognizeImage();
 
-  const [currentResponse, setCurrentResponse] = useState<{sceneDesc: string; reply: string; time: string} | null>(null);
-  const [inputText, setInputText] = useState('');
+  const [reply, setReply]   = useState<{ text: string; time: string } | null>(null);
+  const [inputText, setInputText]   = useState("");
   const [isListening, setIsListening] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
-  const [conversationHistory, setConversationHistory] = useState<{role:'user'|'assistant', content:string}[]>([]);
-  const [chips, setChips] = useState<string[]>([]);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isThinking,  setIsThinking]  = useState(false);
+  const [history, setHistory] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
 
-  const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-  const recognition = useRef<any>(null);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
-  useEffect(() => {
-    setChips(getRandomChips(4));
-  }, []);
+  const SpeechRecognition =
+    typeof window !== "undefined"
+      ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition)
+      : null;
 
   useEffect(() => {
-    if (SpeechRecognition) {
-      recognition.current = new SpeechRecognition();
-      recognition.current.continuous = false;
-      recognition.current.interimResults = false;
+    if (!SpeechRecognition) return;
+    const r = new SpeechRecognition();
+    r.continuous = false;
+    r.interimResults = false;
+    r.onresult = (e: any) => {
+      const t = e.results[0][0].transcript;
+      setIsListening(false);
+      setTimeout(() => handleSend(t), 300);
+    };
+    r.onerror = () => setIsListening(false);
+    r.onend   = () => setIsListening(false);
+    recognitionRef.current = r;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChar?.id]);
 
-      recognition.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInputText(prev => prev + transcript);
-        setIsListening(false);
-        // Auto send after tiny delay if we have text
-        setTimeout(() => {
-          handleSend(transcript);
-        }, 500);
-      };
-
-      recognition.current.onerror = () => setIsListening(false);
-      recognition.current.onend = () => setIsListening(false);
-    }
-  }, [SpeechRecognition, activeChar]);
-
-  const getColorForChar = (name: string): CompanionColor => {
-    if (name.includes("阿暖")) return "amber";
-    if (name.includes("暮歌")) return "indigo";
-    if (name.includes("岛深")) return "teal";
-    return "purple";
-  };
-
-  const getPrefixForChar = (name: string) => {
-    if (name.includes("阿暖")) return "●";
-    if (name.includes("暮歌")) return "☽";
-    if (name.includes("岛深")) return "✦";
-    return "●";
-  };
-
-  const getEnglishName = (name: string) => {
-    if (name.includes("阿暖")) return "Anuan";
-    if (name.includes("暮歌")) return "Muge";
-    if (name.includes("岛深")) return "Daoshan";
-    return "";
-  };
-
-  const getQuoteForChar = (name: string) => {
-    if (name.includes("阿暖")) return "「正在静静聆听风吹松针的温度」";
-    if (name.includes("暮歌")) return "「月光在等你告诉它你刚醒来看见了什么」";
-    if (name.includes("岛深")) return "「已准备好为你梳理那些混沌的线索」";
-    return "「正在等你说梦...」";
-  };
-
-  const generateSceneDesc = (name: string) => {
-    if (name.includes("阿暖")) {
-      const descs = ["（阿暖为你翻开梦之手记，浮起一抹鹅黄暖光）", "（阿暖轻轻拉开椅子，在你对面坐下）", "（阿暖把手心覆在你说的那个梦上面）"];
-      return descs[Math.floor(Math.random() * descs.length)];
-    }
-    if (name.includes("暮歌")) {
-      const descs = ["（暮歌在月光里抬起眼睛，看向你）", "（暮歌翻开一页没有字的纸，等你说）", "（暮歌轻声说，我听见了）"];
-      return descs[Math.floor(Math.random() * descs.length)];
-    }
-    if (name.includes("岛深")) {
-      const descs = ["（岛深打开记录，开始梳理你说的线索）", "（岛深抬头，把你说的话复述了一遍）", "（岛深沉默了一下，然后说）"];
-      return descs[Math.floor(Math.random() * descs.length)];
-    }
-    return "（陪伴者正在倾听你的梦境）";
-  };
+  const charColor = activeChar ? getColor(activeChar.name) : "purple";
+  const hsl = COLOR_HSL[charColor];
 
   const handleTabClick = async (id: string) => {
     if (activeChar?.id === id) return;
     await activateMutation.mutateAsync({ id });
     refetchActive();
-    setCurrentResponse(null);
-    setConversationHistory([]);
+    setReply(null);
+    setHistory([]);
   };
 
-  const playVoice = (text: string) => {
+  const speak = (text: string) => {
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = activeChar?.language === 'en' ? 'en-US' : 'zh-CN';
-    utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = activeChar?.language === "en" ? "en-US" : "zh-CN";
+    u.rate = 0.88;
+    window.speechSynthesis.speak(u);
   };
 
-  const handleSend = async (textToUse?: string) => {
-    const text = textToUse || inputText;
-    if (!text.trim() || !activeChar) return;
-    
+  const handleSend = async (text?: string) => {
+    const msg = (text ?? inputText).trim();
+    if (!msg || !activeChar) return;
     setInputText("");
     setIsThinking(true);
-    
-    const newHistory = [...conversationHistory, { role: "user" as const, content: text }];
-    setConversationHistory(newHistory);
+
+    const newHistory = [...history, { role: "user" as const, content: msg }];
+    setHistory(newHistory);
 
     try {
       const res = await chatMutation.mutateAsync({
         data: {
-          message: text,
-          history: newHistory.slice(-10),
+          message: msg,
+          history: newHistory.slice(-8),
           characterSystemPrompt: activeChar.systemPrompt,
-        }
+        },
       });
-      
-      setConversationHistory(prev => [...prev, { role: "assistant", content: res.reply }]);
-      
       const now = new Date();
-      setCurrentResponse({
-        sceneDesc: generateSceneDesc(activeChar.name),
-        reply: res.reply,
-        time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-      });
-      
-      playVoice(res.reply);
-    } catch (error) {
+      const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+      setHistory(h => [...h, { role: "assistant", content: res.reply }]);
+      setReply({ text: res.reply, time });
+      speak(res.reply);
+    } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
       setIsThinking(false);
@@ -165,54 +142,42 @@ export default function DreamSpace() {
   };
 
   const toggleMic = () => {
-    if (!SpeechRecognition) {
-      toast({ title: "不支持语音输入", variant: "destructive" });
+    if (!SpeechRecognition || !recognitionRef.current) {
+      toast({ title: "此浏览器不支持语音输入", variant: "destructive" });
       return;
     }
     if (isListening) {
-      recognition.current?.stop();
+      recognitionRef.current.stop();
     } else {
-      if (activeChar) {
-        recognition.current.lang = activeChar.language === 'en' ? 'en-US' : 'zh-CN';
-      }
-      recognition.current?.start();
+      recognitionRef.current.lang = activeChar?.language === "en" ? "en-US" : "zh-CN";
+      recognitionRef.current.start();
       setIsListening(true);
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeChar) return;
-
     setIsThinking(true);
     const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      const base64 = dataUrl.split(',')[1];
-      const mimeType = file.type || 'image/jpeg';
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const base64  = dataUrl.split(",")[1];
       try {
         const res = await recognizeMutation.mutateAsync({
-          data: {
-            imageBase64: base64,
-            mimeType,
-          }
+          data: { imageBase64: base64, mimeType: file.type || "image/jpeg" },
         });
-        
         const replyText = `${res.description}\n\n${res.draftContent}`;
-        setConversationHistory(prev => [
-          ...prev, 
-          { role: "user", content: "[上传了一张图片]" },
-          { role: "assistant", content: replyText }
-        ]);
-        
         const now = new Date();
-        setCurrentResponse({
-          sceneDesc: "（AI正在感应图片中的梦境元素）",
-          reply: replyText,
-          time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-        });
-        playVoice(replyText);
-      } catch (err) {
+        const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+        setHistory(h => [
+          ...h,
+          { role: "user",      content: "[图片]" },
+          { role: "assistant", content: replyText },
+        ]);
+        setReply({ text: replyText, time });
+        speak(replyText);
+      } catch {
         toast({ title: "图片感应失败", variant: "destructive" });
       } finally {
         setIsThinking(false);
@@ -222,233 +187,272 @@ export default function DreamSpace() {
   };
 
   const handleSaveDream = async () => {
-    if (!activeChar || conversationHistory.length === 0) {
-      toast({ title: "还没有梦境内容可以保存" });
+    if (!activeChar || history.length === 0) {
+      toast({ title: "还没有梦境内容" });
       return;
     }
-
-    const firstUserMsg = conversationHistory.find(m => m.role === 'user')?.content || "未命名的梦";
-    const title = firstUserMsg.slice(0, 15) + (firstUserMsg.length > 15 ? "..." : "");
-    const content = conversationHistory.map(m => `[${m.role === 'user' ? '你' : activeChar.name}] ${m.content}`).join('\n\n');
-
+    const firstUser = history.find(m => m.role === "user")?.content ?? "未命名的梦";
+    const title   = firstUser.slice(0, 15) + (firstUser.length > 15 ? "…" : "");
+    const content = history.map(m => `[${m.role === "user" ? "你" : activeChar.name}] ${m.content}`).join("\n\n");
     try {
       await createDreamMutation.mutateAsync({
         data: {
-          title,
-          content,
-          mood: "calm",
-          clarity: "moderate",
-          isRecurring: false,
-          companionReply: currentResponse?.reply,
-          characterId: activeChar.id
-        }
+          title, content, mood: "calm", clarity: "moderate", isRecurring: false,
+          companionReply: reply?.text,
+          characterId: activeChar.id,
+        },
       });
       toast({ title: "已保存到梦境手账" });
-    } catch (err) {
+    } catch {
       toast({ title: "保存失败", variant: "destructive" });
     }
   };
 
-  if (!activeChar && characters && characters.length > 0) {
-    // If no active char but chars exist, might be loading still or need selection
-    return <div className="min-h-screen bg-[#0A0A1A] text-white flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!activeChar && characters && characters.length === 0) {
+  if (!activeChar) {
     return (
-      <div className="min-h-screen bg-[#0A0A1A] text-white flex flex-col items-center justify-center space-y-6">
-        <p>还没有陪伴者</p>
-        <Link href="/characters/new" className="px-6 py-2 bg-primary/20 text-primary rounded-full">创建角色</Link>
+      <div className="min-h-screen bg-[#05050A] text-white flex items-center justify-center">
+        <motion.div animate={{ opacity: [0.3, 0.8, 0.3] }} transition={{ duration: 2, repeat: Infinity }}
+          className="text-white/30 text-sm tracking-widest">
+          正在感应...
+        </motion.div>
       </div>
     );
   }
 
-  const charColor = activeChar ? getColorForChar(activeChar.name) : "purple";
+  const isSpeaking = !!reply && !isThinking;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-between w-full h-full relative z-10 px-4 pt-4 pb-8 overflow-hidden bg-[#05050A]">
-      {/* Top Bar */}
-      <header className="w-full flex items-center justify-between py-3 px-4 glass-panel rounded-2xl border border-white/5 backdrop-blur-md sticky top-4 z-50">
-        <div className="flex items-center gap-4">
-          <Link href="/dreams" className="text-white/60 hover:text-white/90">
-            <ArrowLeft size={20} />
+    <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">
+
+      {/* Ambient color bloom — changes with character */}
+      <motion.div
+        className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 rounded-full blur-[120px]"
+        style={{ width: 400, height: 400, top: -80 }}
+        animate={{ backgroundColor: [`hsl(${hsl} / 0.07)`, `hsl(${hsl} / 0.12)`, `hsl(${hsl} / 0.07)`] }}
+        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      {/* ── TOP BAR ── */}
+      <header className="w-full flex items-center justify-between px-5 py-4 relative z-30">
+        {/* Left */}
+        <div className="flex items-center gap-3">
+          <Link href="/dreams">
+            <button className="text-white/30 hover:text-white/60 transition-colors">
+              <ArrowLeft size={18} />
+            </button>
           </Link>
-          <div className="flex flex-col hidden sm:flex">
-            <span className="text-xs font-serif tracking-widest text-white/80">DREAM SPACE / 巡梦进行中</span>
-            <span className="text-[10px] text-green-400/80 flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-              {settings?.hasApiKey ? "已连接 API" : "Demo 模拟模式"}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] tracking-[0.2em] text-white/25 uppercase font-sans">
+              Dream Space
             </span>
+            {!settings?.hasApiKey && (
+              <span className="text-[9px] text-green-400/50">demo</span>
+            )}
           </div>
         </div>
 
-        <div className="flex gap-2 p-1 bg-white/5 rounded-full">
-          {characters?.map(c => (
-            <button
-              key={c.id}
-              onClick={() => handleTabClick(c.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-                activeChar?.id === c.id 
-                  ? 'bg-white/10 text-white shadow-sm' 
-                  : 'text-white/40 hover:text-white/70'
-              }`}
-            >
-              {getPrefixForChar(c.name)} {c.name.replace(/[a-zA-Z\s]/g, '')}
-            </button>
-          ))}
+        {/* Center — character tabs */}
+        <div className="flex items-center gap-1 bg-white/[0.04] rounded-full px-1.5 py-1">
+          {characters?.map(c => {
+            const active = activeChar.id === c.id;
+            return (
+              <button
+                key={c.id}
+                onClick={() => handleTabClick(c.id)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-300 ${
+                  active
+                    ? "bg-white/10 text-white"
+                    : "text-white/30 hover:text-white/55"
+                }`}
+              >
+                {getPrefix(c.name)} {c.name.replace(/[a-zA-Z\s]/g, "")}
+              </button>
+            );
+          })}
         </div>
 
-        <Button 
-          variant="outline" 
-          size="sm" 
+        {/* Right */}
+        <button
           onClick={handleSaveDream}
-          className="border-white/20 text-white/80 hover:bg-white/10 hover:text-white bg-transparent rounded-full h-9 px-4 hidden sm:flex"
+          className="text-[11px] text-white/25 hover:text-white/55 tracking-wider transition-colors"
         >
-          ✦ 保存梦手账
-        </Button>
+          保存
+        </button>
       </header>
 
-      {/* Center Soul Area */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mt-8 sm:mt-0 relative z-20">
-        {activeChar && (
-          <div className="flex flex-col items-center gap-6">
-            <CompanionOrb 
-              size="lg" 
-              color={charColor} 
-              isSpeaking={!!currentResponse && !isThinking} 
-              isThinking={isThinking} 
+      {/* ── CENTER ── */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-6 relative z-20 mt-2">
+
+        {/* Orb */}
+        <CompanionOrb
+          size="lg"
+          color={charColor}
+          isSpeaking={isSpeaking}
+          isThinking={isThinking}
+          isListening={isListening}
+        />
+
+        {/* Name + quote */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl font-serif text-white/90 tracking-wide">
+              {activeChar.name.replace(/[a-zA-Z]/g, "").trim()}
+            </span>
+            <span className="text-sm text-white/30 font-sans tracking-widest">
+              {getEnName(activeChar.name)}
+            </span>
+            <motion.div
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: `hsl(${hsl})` }}
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 2.5, repeat: Infinity }}
             />
-            
-            <div className="text-center space-y-2 mt-4">
-              <h2 className="text-2xl font-serif text-white tracking-wide flex items-center justify-center gap-2">
-                {activeChar.name.replace(/[a-zA-Z]/g, '').trim()} <span className="font-sans text-xl opacity-60">{getEnglishName(activeChar.name)}</span>
-                <motion.div 
-                  className={`w-2 h-2 rounded-full`}
-                  style={{ backgroundColor: `hsl(${charColor === 'amber' ? '38 90% 60%' : charColor === 'indigo' ? '240 70% 65%' : charColor === 'teal' ? '185 70% 55%' : 'var(--primary)'})` }}
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-              </h2>
-              <p className="text-sm italic" style={{ color: 'hsl(280 30% 65%)' }}>
-                {getQuoteForChar(activeChar.name)}
-              </p>
-            </div>
-
-            <div className="mt-4">
-              <AudioWaveform 
-                isActive={!!currentResponse} 
-                isListening={isListening} 
-                isThinking={isThinking} 
-                color={charColor} 
-              />
-            </div>
           </div>
-        )}
+          <p className="text-xs text-white/30 italic tracking-wide">
+            {getIdleQuote(activeChar.name)}
+          </p>
+        </div>
 
-        {/* Response Card Area */}
-        <div className="w-full mt-10 min-h-[160px] flex flex-col items-center justify-center">
+        {/* Waveform */}
+        <AudioWaveform
+          isActive={isSpeaking}
+          isListening={isListening}
+          isThinking={isThinking}
+          color={charColor}
+        />
+
+        {/* ── RESPONSE CARD ── */}
+        <div className="w-full max-w-md min-h-[100px] flex items-center justify-center">
           <AnimatePresence mode="wait">
-            {!currentResponse && !isThinking ? (
-              <motion.div 
-                key="placeholder"
+            {isThinking ? (
+              <motion.div
+                key="thinking"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0.2, 0.6, 0.2] }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.4, repeat: Infinity }}
+                className="text-xs text-white/25 tracking-[0.25em]"
+              >
+                正在感应…
+              </motion.div>
+            ) : reply ? (
+              <motion.div
+                key="reply"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.45, ease: "easeOut" }}
+                className="w-full rounded-2xl px-6 py-5 text-center"
+                style={{
+                  background: `linear-gradient(135deg, hsl(${hsl} / 0.05) 0%, rgba(255,255,255,0.02) 100%)`,
+                  border: `1px solid hsl(${hsl} / 0.12)`,
+                  boxShadow: `0 4px 40px hsl(${hsl} / 0.06)`,
+                }}
+              >
+                <p className="text-[15px] text-white/80 leading-relaxed whitespace-pre-wrap">
+                  {reply.text}
+                </p>
+                <p className="mt-4 text-[10px] text-white/20 tracking-[0.2em]">
+                  {reply.time}
+                </p>
+              </motion.div>
+            ) : (
+              <motion.p
+                key="idle"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-white/30 text-sm tracking-widest"
+                className="text-xs text-white/18 tracking-[0.2em]"
               >
-                正在等你说梦...
-              </motion.div>
-            ) : currentResponse ? (
-              <motion.div
-                key="response"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: "easeOut" }}
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md text-center flex flex-col items-center gap-4 shadow-xl"
-              >
-                <p className="text-xs text-white/50 italic">{currentResponse.sceneDesc}</p>
-                <p className="text-base text-white/90 leading-relaxed max-w-lg whitespace-pre-wrap">
-                  {currentResponse.reply}
-                </p>
-                <p className="text-[10px] text-white/30 tracking-widest uppercase">
-                  COMPANION RESPONSE • {currentResponse.time}
-                </p>
-              </motion.div>
-            ) : null}
+                轻触麦克风，说一个刚醒来还没散掉的梦
+              </motion.p>
+            )}
           </AnimatePresence>
         </div>
 
-        {/* Chips */}
-        <div className="flex flex-wrap justify-center gap-2 mt-8 max-w-lg">
-          {chips.map((chip, idx) => (
-            <button
-              key={idx}
+        {/* ── CHIPS ── */}
+        <div className="flex flex-wrap justify-center gap-2">
+          {CHIPS.map((chip, i) => (
+            <motion.button
+              key={i}
               onClick={() => handleSend(chip)}
-              className="px-4 py-2 rounded-full border border-white/10 bg-transparent text-xs text-white/50 hover:text-white/80 hover:border-white/30 transition-all hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]"
+              className="px-4 py-1.5 rounded-full text-xs text-white/30 transition-all"
+              style={{ border: "1px solid rgba(255,255,255,0.07)" }}
+              whileHover={{
+                color: "rgba(255,255,255,0.65)",
+                borderColor: `hsl(${hsl} / 0.3)`,
+                boxShadow: `0 0 12px hsl(${hsl} / 0.12)`,
+              }}
             >
               {chip}
-            </button>
+            </motion.button>
           ))}
         </div>
       </div>
 
-      {/* Bottom Input Area */}
-      <div className="w-full max-w-2xl glass-panel rounded-3xl p-4 mt-8 backdrop-blur-xl border border-white/10 relative z-30">
-        {isListening && (
-          <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-xs text-white/60 animate-pulse">
-            正在聆听...
-          </div>
-        )}
-        
-        <div className="flex items-center justify-between gap-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className={`w-10 h-10 rounded-full shrink-0 transition-opacity ${inputText.trim() ? 'opacity-100 text-white' : 'opacity-0 pointer-events-none'}`}
-            onClick={() => handleSend()}
-          >
-            <Send size={18} />
-          </Button>
+      {/* ── BOTTOM INPUT ── */}
+      <div className="w-full max-w-md mx-auto px-5 pb-10 pt-4 flex flex-col items-center gap-5 relative z-30">
 
-          <button
-            onClick={toggleMic}
-            className="w-16 h-16 rounded-full flex items-center justify-center shrink-0 transition-all shadow-lg"
-            style={{ 
-              backgroundColor: `hsl(${charColor === 'amber' ? '38 90% 60%' : charColor === 'indigo' ? '240 70% 65%' : charColor === 'teal' ? '185 70% 55%' : 'var(--primary)'} / ${isListening ? 1 : 0.2})`,
-              boxShadow: isListening ? `0 0 30px hsl(${charColor === 'amber' ? '38 90% 60%' : charColor === 'indigo' ? '240 70% 65%' : charColor === 'teal' ? '185 70% 55%' : 'var(--primary)'} / 0.5)` : 'none',
-              color: isListening ? '#fff' : `hsl(${charColor === 'amber' ? '38 90% 60%' : charColor === 'indigo' ? '240 70% 65%' : charColor === 'teal' ? '185 70% 55%' : 'var(--primary)'})`
-            }}
-          >
-            {isListening ? <Square size={24} className="fill-current" /> : <Mic size={28} />}
-          </button>
-
-          <input 
-            type="file" 
-            accept="image/*" 
-            className="hidden" 
-            ref={fileInputRef}
-            onChange={handleImageUpload}
-          />
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="w-10 h-10 rounded-full shrink-0 text-white/50 hover:text-white/90"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <ImageIcon size={20} />
-          </Button>
-        </div>
-
-        <div className="mt-4 px-4">
+        {/* Text + image row */}
+        <div className="w-full flex items-center gap-3">
           <input
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder="也可以输入一句话…说一个刚醒来还没散掉的梦"
-            className="w-full bg-transparent border-b border-white/10 pb-2 text-center text-sm text-white/80 placeholder:text-white/30 focus:outline-none focus:border-white/30 transition-colors"
+            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder="也可以输入…"
+            className="flex-1 bg-transparent text-sm text-white/55 placeholder:text-white/18
+                       border-0 border-b focus:outline-none focus:border-white/20 transition-colors pb-1"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
           />
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-white/20 hover:text-white/50 transition-colors flex-shrink-0"
+          >
+            <ImageIcon size={16} />
+          </button>
         </div>
+
+        {/* Mic — hero button */}
+        <motion.button
+          onClick={toggleMic}
+          className="relative flex items-center justify-center rounded-full flex-shrink-0"
+          style={{
+            width: 72, height: 72,
+            backgroundColor: `hsl(${hsl} / ${isListening ? 0.85 : 0.14})`,
+            boxShadow: isListening
+              ? `0 0 0 8px hsl(${hsl} / 0.12), 0 0 40px hsl(${hsl} / 0.35)`
+              : `0 0 0 1px hsl(${hsl} / 0.2)`,
+            color: isListening ? "#fff" : `hsl(${hsl})`,
+          }}
+          animate={isListening ? { scale: [1, 1.06, 1] } : { scale: 1 }}
+          transition={isListening ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" } : {}}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.94 }}
+        >
+          {isListening ? <Square size={24} className="fill-current" /> : <Mic size={26} />}
+
+          {isListening && (
+            <motion.div
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{ border: `1px solid hsl(${hsl} / 0.4)` }}
+              animate={{ scale: [1, 1.5], opacity: [0.5, 0] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
+            />
+          )}
+        </motion.button>
+
+        {isListening && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0.4, 0.9, 0.4] }}
+            transition={{ duration: 1, repeat: Infinity }}
+            className="text-xs text-white/40 tracking-widest -mt-2"
+          >
+            正在聆听…
+          </motion.p>
+        )}
       </div>
     </div>
   );
