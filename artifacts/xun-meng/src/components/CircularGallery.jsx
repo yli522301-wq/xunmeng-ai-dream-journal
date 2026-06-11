@@ -220,6 +220,9 @@ export default function CircularGallery({
   borderRadius = 0.06,
   scrollEase   = 0.04,
   scrollSpeed  = 2,
+  cardWidth    = 1.72,
+  cardHeight   = 1.32,
+  cardStep     = 1.88,
   onItemClick,
 }) {
   const mountRef   = useRef(null);
@@ -278,10 +281,10 @@ export default function CircularGallery({
       const canvases = await Promise.all(padded.map(_buildCanvas));
       if (destroyed) return;
 
-      // Card geometry: wider cards, ~5 visible in view
-      const CARD_W = 1.72;
-      const CARD_H = 1.32;
-      const STEP   = 1.88;
+      // Card geometry — driven by props (cardWidth / cardHeight / cardStep)
+      const CARD_W = cardWidth;
+      const CARD_H = cardHeight;
+      const STEP   = cardStep;
       const N      = padded.length;
       const totalW = (N - 1) * STEP;
 

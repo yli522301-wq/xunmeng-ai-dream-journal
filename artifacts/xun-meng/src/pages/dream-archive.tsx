@@ -1,10 +1,11 @@
 /**
  * 梦境回忆走廊 — /archive
  *
- * 全屏沉浸式 CircularGallery 大画廊。
- * 右上角入口可跳转到 /archive/list（普通卡片列表）。
+ * 全屏沉浸式 CircularGallery 走廊。
+ * Gallery 铺满整个视口；顶部/底部 UI 以透明叠加层浮在画面上方。
+ * 右上角"全部梦境"跳转 /archive/list。
  *
- * 导出 DREAMS_STORAGE_KEY 和 SavedDream 供其他页面使用。
+ * 导出 DREAMS_STORAGE_KEY / SavedDream / CS 供其他页面使用。
  */
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
@@ -14,7 +15,7 @@ import type { ChatMessage, CharKey } from "@/pages/dream-space";
 // @ts-ignore
 import CircularGallery from "@/components/CircularGallery.jsx";
 
-// ── Public exports (consumed by dream-local-detail, etc.) ────────────────────
+// ── Public exports ────────────────────────────────────────────────────────────
 export const DREAMS_STORAGE_KEY = "xm-saved-dreams";
 
 export interface SavedDream {
@@ -28,7 +29,6 @@ export interface SavedDream {
   coverImage?: string;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
 export const CS: Record<string, { name: string; enName: string; hsl: string; dot: string }> = {
   daoshen: { name: "岛深", enName: "Daoshan", hsl: "185 70% 55%", dot: "#6B8CFF" },
   muge:    { name: "暮歌", enName: "Muge",    hsl: "240 70% 65%", dot: "#9B7CFF" },
@@ -40,22 +40,24 @@ function CorridorEmpty() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-8 select-none">
       <motion.div
-        className="relative"
-        animate={{ y: [0, -10, 0] }}
-        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ y: [0, -12, 0] }}
+        transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
       >
-        <div className="w-24 h-24 rounded-full flex items-center justify-center relative"
-          style={{ background: "radial-gradient(circle at 38% 35%, rgba(107,140,255,0.12), rgba(10,5,30,0.60))", border: "1px solid rgba(107,140,255,0.10)" }}>
+        <div className="w-28 h-28 rounded-full flex items-center justify-center relative"
+          style={{
+            background: "radial-gradient(circle at 38% 35%, rgba(107,140,255,0.10), rgba(10,5,30,0.55))",
+            border: "1px solid rgba(107,140,255,0.09)",
+          }}>
           <div className="absolute inset-0 rounded-full animate-pulse opacity-10"
-            style={{ background: "radial-gradient(circle, rgba(107,140,255,0.5), transparent)" }} />
-          <Sparkles size={26} style={{ color: "rgba(107,140,255,0.28)" }} />
+            style={{ background: "radial-gradient(circle, rgba(107,140,255,0.6), transparent)" }} />
+          <Sparkles size={30} style={{ color: "rgba(107,140,255,0.26)" }} />
         </div>
       </motion.div>
       <div className="text-center space-y-2">
-        <p className="text-[14px] tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.22)" }}>
+        <p className="text-[15px] tracking-[0.14em]" style={{ color: "rgba(255,255,255,0.22)" }}>
           还没有梦境进入回忆走廊
         </p>
-        <p className="text-[11px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.09)" }}>
+        <p className="text-[11px] tracking-[0.20em]" style={{ color: "rgba(255,255,255,0.08)" }}>
           在梦境空间与 AI 对话，保存你的梦
         </p>
       </div>
@@ -74,7 +76,7 @@ export default function DreamCorridor() {
       const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
       if (raw) setAllDreams([...JSON.parse(raw) as SavedDream[]].reverse());
     } catch { /* ignore */ }
-    const t = setTimeout(() => setIntro(false), 600);
+    const t = setTimeout(() => setIntro(false), 400);
     return () => clearTimeout(t);
   }, []);
 
@@ -89,109 +91,48 @@ export default function DreamCorridor() {
     [allDreams]
   );
 
+  const hasDreams = allDreams.length > 0;
+
   return (
     <motion.div
-      className="h-screen w-full text-white flex flex-col overflow-hidden select-none"
+      className="fixed inset-0 w-full h-screen overflow-hidden select-none text-white"
       style={{ background: "#05050A" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.55 }}
+      transition={{ duration: 0.6 }}
     >
       {/* ── Ambient background ── */}
-      <div className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute top-0 left-1/4 w-[700px] h-[700px] rounded-full opacity-[0.032]"
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute top-0 left-1/4 w-[800px] h-[800px] rounded-full opacity-[0.030]"
           style={{ background: "radial-gradient(circle, rgba(107,140,255,1), transparent)" }} />
-        <div className="absolute bottom-0 right-1/3 w-[500px] h-[500px] rounded-full opacity-[0.024]"
+        <div className="absolute bottom-0 right-1/3 w-[600px] h-[600px] rounded-full opacity-[0.022]"
           style={{ background: "radial-gradient(circle, rgba(155,124,255,1), transparent)" }} />
-        <div className="absolute top-1/2 left-0 w-[300px] h-[300px] rounded-full opacity-[0.018]"
+        <div className="absolute top-1/2 left-0 w-[400px] h-[400px] rounded-full opacity-[0.016]"
           style={{ background: "radial-gradient(circle, rgba(242,168,75,1), transparent)" }} />
       </div>
 
-      {/* ── Header ── */}
-      <div className="relative z-10 flex-none px-6 pt-7 pb-0">
-        <div className="flex items-start justify-between">
-          {/* Left: back + titles */}
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setLocation("/")}
-              className="flex items-center gap-2 self-start"
-              style={{ color: "rgba(255,255,255,0.22)" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.50)")}
-              onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.22)")}
-            >
-              <ArrowLeft size={13} />
-              <span className="text-[11px] tracking-[0.20em] uppercase">梦境空间</span>
-            </button>
-
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15, duration: 0.55 }}
-            >
-              <h1 className="text-[28px] font-serif tracking-wide leading-tight"
-                style={{ color: "rgba(255,255,255,0.88)" }}>
-                梦境回忆走廊
-              </h1>
-              <p className="mt-1 text-[11px] tracking-[0.18em]"
-                style={{ color: "rgba(255,255,255,0.18)" }}>
-                滑动浏览被你收藏的梦境碎片
-              </p>
-            </motion.div>
-          </div>
-
-          {/* Right: archive list entry */}
-          <motion.div
-            className="flex items-center gap-2 mt-0.5"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-          >
-            <motion.button
-              onClick={() => setLocation("/archive/list")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.08)",
-              }}
-              whileHover={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.14)" }}
-              whileTap={{ scale: 0.94 }}
-            >
-              <LayoutList size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
-              <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.30)" }}>
-                全部梦境
-              </span>
-            </motion.button>
-          </motion.div>
-        </div>
-      </div>
-
-      {/* ── Gallery (fills all remaining height) ── */}
-      <div className="relative z-10 flex-1 min-h-0 w-full mt-3">
+      {/* ── Gallery — fills the ENTIRE viewport ── */}
+      <div className="absolute inset-0 z-0">
         <AnimatePresence mode="wait">
-          {allDreams.length === 0 && !intro ? (
-            <motion.div
-              key="empty"
-              className="w-full h-full"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
+          {!intro && !hasDreams ? (
+            <motion.div key="empty" className="w-full h-full"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <CorridorEmpty />
             </motion.div>
           ) : (
-            <motion.div
-              key="gallery"
-              className="w-full h-full"
+            <motion.div key="gallery" className="w-full h-full"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.25, duration: 0.6 }}
-            >
+              transition={{ delay: 0.2, duration: 0.7 }}>
               <CircularGallery
                 items={galleryItems}
-                bend={3}
-                borderRadius={0.06}
-                scrollEase={0.038}
+                bend={2.4}
+                borderRadius={0.055}
+                scrollEase={0.040}
                 scrollSpeed={2}
+                cardWidth={2.55}
+                cardHeight={1.96}
+                cardStep={2.80}
                 onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
               />
             </motion.div>
@@ -199,30 +140,93 @@ export default function DreamCorridor() {
         </AnimatePresence>
       </div>
 
-      {/* ── Footer hint ── */}
-      {allDreams.length > 0 && (
+      {/* ── Top gradient scrim (makes header text legible over gallery) ── */}
+      <div className="pointer-events-none absolute top-0 left-0 right-0 h-36 z-10"
+        style={{ background: "linear-gradient(to bottom, rgba(5,5,10,0.82) 0%, rgba(5,5,10,0.30) 70%, transparent 100%)" }} />
+
+      {/* ── Header overlay ── */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between px-6 pt-5">
+        {/* Back to Dream Space */}
+        <button
+          onClick={() => setLocation("/")}
+          className="flex items-center gap-2 mt-0.5"
+          style={{ color: "rgba(255,255,255,0.28)" }}
+          onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.60)")}
+          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.28)")}
+        >
+          <ArrowLeft size={13} />
+          <span className="text-[11px] tracking-[0.20em] uppercase">梦境空间</span>
+        </button>
+
+        {/* Centre title */}
         <motion.div
-          className="relative z-10 flex-none flex items-center justify-center gap-4 pb-5 pt-1"
+          className="absolute left-1/2 top-5 -translate-x-1/2 text-center pointer-events-none"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.55 }}
+        >
+          <h1 className="text-[18px] font-serif tracking-[0.18em]"
+            style={{ color: "rgba(255,255,255,0.72)" }}>
+            梦境回忆走廊
+          </h1>
+          <p className="mt-0.5 text-[10px] tracking-[0.22em]"
+            style={{ color: "rgba(255,255,255,0.20)" }}>
+            {hasDreams ? `${allDreams.length} 段梦境` : "滑动浏览梦境碎片"}
+          </p>
+        </motion.div>
+
+        {/* Right: go to list */}
+        <motion.button
+          onClick={() => setLocation("/archive/list")}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full mt-0.5"
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            backdropFilter: "blur(12px)",
+          }}
+          whileHover={{ background: "rgba(255,255,255,0.10)", borderColor: "rgba(255,255,255,0.16)" }}
+          whileTap={{ scale: 0.94 }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
+          transition={{ delay: 0.35 }}
         >
-          <span className="text-[10px] tracking-[0.20em]"
-            style={{ color: "rgba(255,255,255,0.12)" }}>
+          <LayoutList size={11} style={{ color: "rgba(255,255,255,0.38)" }} />
+          <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.34)" }}>
+            全部梦境
+          </span>
+        </motion.button>
+      </div>
+
+      {/* ── Bottom gradient scrim ── */}
+      {hasDreams && (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 z-10"
+          style={{ background: "linear-gradient(to top, rgba(5,5,10,0.72) 0%, rgba(5,5,10,0.20) 70%, transparent 100%)" }} />
+      )}
+
+      {/* ── Footer overlay hint ── */}
+      {hasDreams && (
+        <motion.div
+          className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-center gap-5 pb-5"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.7 }}
+        >
+          <span className="text-[10px] tracking-[0.22em]"
+            style={{ color: "rgba(255,255,255,0.14)" }}>
             拖动浏览
           </span>
           <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.08)" }} />
-          <span className="text-[10px] tracking-[0.20em]"
-            style={{ color: "rgba(255,255,255,0.12)" }}>
-            轻点卡片进入梦境详情
+          <span className="text-[10px] tracking-[0.22em]"
+            style={{ color: "rgba(255,255,255,0.14)" }}>
+            轻点卡片进入梦境
           </span>
           <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.08)" }} />
           <button
             onClick={() => setLocation("/archive/list")}
-            className="text-[10px] tracking-[0.16em] transition-opacity"
-            style={{ color: "rgba(107,140,255,0.30)" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
-            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+            className="text-[10px] tracking-[0.18em]"
+            style={{ color: "rgba(107,140,255,0.32)" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(107,140,255,0.65)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(107,140,255,0.32)")}
           >
             查看全部梦境 →
           </button>
