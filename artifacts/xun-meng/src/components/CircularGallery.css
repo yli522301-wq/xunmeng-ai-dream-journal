@@ -1,0 +1,19 @@
+.cg-root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  cursor: grab;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.cg-root:active {
+  cursor: grabbing;
+}
+
+.cg-root canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 16px;
+}

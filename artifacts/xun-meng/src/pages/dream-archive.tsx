@@ -6,6 +6,8 @@ import {
   ChevronLeft, ChevronRight, X,
 } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
+// @ts-ignore — JSX component, handled by Vite
+import CircularGallery from "@/components/CircularGallery.jsx";
 
 export const DREAMS_STORAGE_KEY = "xm-saved-dreams";
 
@@ -581,6 +583,23 @@ export default function DreamArchive() {
     } catch { /* ignore */ }
   }, []);
 
+  // Build gallery items for CircularGallery (newest first, up to 30)
+  const galleryItems = useMemo(() => {
+    return allDreams.slice(0, 30).map(dream => {
+      // First user image from messages, then coverImage, then null (uses fallback)
+      const imgMsg = dream.messages.find(
+        m => m.role === "user" && (m.imageUrl || m.type === "image")
+      );
+      const image = imgMsg?.imageUrl ?? dream.coverImage ?? null;
+      return {
+        image,
+        text: dream.title,
+        dreamId: dream.id,
+        charKey: dream.activeCharacter as string,
+      };
+    });
+  }, [allDreams]);
+
   // Build date map for calendar indicators
   const dreamsByDate = useMemo(() => {
     const map: Record<string, SavedDream[]> = {};
@@ -690,6 +709,32 @@ export default function DreamArchive() {
             : "每一段被收藏的梦，都不会消散"}
         </p>
       </div>
+
+      {/* ── 梦境回忆走廊 ── */}
+      {galleryItems.length > 0 && (
+        <div className="relative z-10 w-full max-w-2xl mx-auto px-5 mt-5 mb-2">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-[10px] tracking-[0.22em]" style={{ color: "rgba(255,255,255,0.22)" }}>
+              梦境回忆走廊
+            </span>
+            <div className="h-px flex-1 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
+            <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.12)" }}>
+              滑动浏览 · 点击进入
+            </span>
+          </div>
+          <div style={{ height: 300 }}>
+            <CircularGallery
+              items={galleryItems}
+              bend={2.5}
+              textColor="#EDEBFF"
+              borderRadius={0.08}
+              scrollEase={0.038}
+              scrollSpeed={1.6}
+              onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── Dream list ── */}
       <div className="relative z-10 flex-1 px-5 pb-16 max-w-xl mx-auto w-full">
