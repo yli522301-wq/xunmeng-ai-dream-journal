@@ -636,13 +636,18 @@ export default function DreamSpace() {
     const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
     const summary = lastAiMsg?.content ?? firstUser;
     const coverImage = messages.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
+    // Strip audio blobs before saving (base64 audio can exceed localStorage 5 MB quota).
+    // Keep all metadata (type, duration, transcription) so the detail page still renders voice cards.
+    const messagesForStorage = messages.map(m =>
+      m.audioUrl ? { ...m, audioUrl: undefined } : m
+    );
     const dream = {
       id: genId(),
       title,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       activeCharacter: activeKey,
-      messages,
+      messages: messagesForStorage,
       summary,
       mood: "朦胧",
       coverImage,
