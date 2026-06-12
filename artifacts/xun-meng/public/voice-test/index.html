@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>阿暖声音对比 — ElevenLabs</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #06060e;
+    color: rgba(255,255,255,0.82);
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+    min-height: 100vh;
+    padding: 32px 20px 60px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    color: rgba(255,255,255,0.55);
+  }
+  .sentence {
+    font-size: 13px;
+    color: rgba(255,255,255,0.28);
+    margin-bottom: 32px;
+    font-style: italic;
+    letter-spacing: 0.06em;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    max-width: 960px;
+  }
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 18px 20px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: rgba(160,120,255,0.28); }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .voice-name {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .voice-id {
+    font-size: 10px;
+    color: rgba(255,255,255,0.22);
+    letter-spacing: 0.08em;
+    font-family: monospace;
+  }
+  .badge {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 20px;
+    letter-spacing: 0.1em;
+    background: rgba(140,100,255,0.18);
+    color: rgba(180,150,255,0.7);
+    border: 1px solid rgba(140,100,255,0.2);
+  }
+  audio {
+    width: 100%;
+    height: 32px;
+    filter: invert(1) hue-rotate(200deg) brightness(0.7);
+    border-radius: 8px;
+  }
+  .note {
+    font-size: 11px;
+    color: rgba(255,255,255,0.22);
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<h1>阿暖声音对比试听</h1>
+<p class="sentence">"哎，这个梦听着就挺堵的。你先别急着解释它，我们慢慢捋。"</p>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Bill</div>
+        <div class="voice-id">pqHfZKP75CvOlQylNhV4</div>
+      </div>
+      <span class="badge">低沉·厚重</span>
+    </div>
+    <audio controls src="Bill_pqHfZK.mp3"></audio>
+    <p class="note">很深的男声，有重量感，略带沧桑</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Thomas</div>
+        <div class="voice-id">GBv7mTt0atIp3Br8iCZE</div>
+      </div>
+      <span class="badge">深沉·叙事</span>
+    </div>
+    <audio controls src="Thomas_GBv7mT.mp3"></audio>
+    <p class="note">深沉叙事感，节奏稳，有故事性</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Fin</div>
+        <div class="voice-id">D38z5RcWu1voky8WS1ja</div>
+      </div>
+      <span class="badge">有质感</span>
+    </div>
+    <audio controls src="Fin_D38z5R.mp3"></audio>
+    <p class="note">声音有颗粒感，略带粗糙</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">George</div>
+        <div class="voice-id">JBFqnCBsd6RMkjVDRZzb</div>
+      </div>
+      <span class="badge">低沉·稳</span>
+    </div>
+    <audio controls src="George_JBFqnC.mp3"></audio>
+    <p class="note">沉稳磁性，有成熟感</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Daniel</div>
+        <div class="voice-id">onwK4e9ZLuTAKqWW03F9</div>
+      </div>
+      <span class="badge">沉静·温</span>
+    </div>
+    <audio controls src="Daniel_onwK4e.mp3"></audio>
+    <p class="note">低沉温和，情绪克制</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Callum</div>
+        <div class="voice-id">N2lVS1w4EtoT3dr4eOWO</div>
+      </div>
+      <span class="badge">平稳·清晰</span>
+    </div>
+    <audio controls src="Callum_N2lVS1.mp3"></audio>
+    <p class="note">平稳内敛，语速均匀</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Jeremy</div>
+        <div class="voice-id">bVMeCyTHy58xNoL34h3p</div>
+      </div>
+      <span class="badge">自然·随和</span>
+    </div>
+    <audio controls src="Jeremy_bVMeCy.mp3"></audio>
+    <p class="note">自然对话感，像朋友聊天</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Brian</div>
+        <div class="voice-id">nPczCjzI2devNBz1zQrb</div>
+      </div>
+      <span class="badge">当前使用</span>
+    </div>
+    <audio controls src="Brian_nPczCj.mp3"></audio>
+    <p class="note">当前阿暖使用的声音，参考基准</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">Sam</div>
+        <div class="voice-id">yoZ06aMxZJJ28mfd3POQ</div>
+      </div>
+      <span class="badge">温和·平</span>
+    </div>
+    <audio controls src="Sam_yoZ06a.mp3"></audio>
+    <p class="note">温和平稳，较轻</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="voice-name">James</div>
+        <div class="voice-id">ZQe5CZNOzWyzPSCn5a3c</div>
+      </div>
+      <span class="badge">成熟·凝重</span>
+    </div>
+    <audio controls src="James_ZQe5CZ.mp3"></audio>
+    <p class="note">凝重，有阅历感</p>
+  </div>
+
+</div>
+</body>
+</html>
