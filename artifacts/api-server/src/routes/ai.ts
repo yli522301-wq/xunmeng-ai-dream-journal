@@ -64,7 +64,8 @@ function rnd<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)
 const CHARACTER_VOICE_SETTINGS: Record<string, {
   stability: number; similarityBoost: number; style: number; useSpeakerBoost: boolean;
 }> = {
-  anuan:   { stability: 0.45, similarityBoost: 0.75, style: 0.35, useSpeakerBoost: true },
+  // anuan: deep/calm, low style to avoid broadcast cadence
+  anuan:   { stability: 0.78, similarityBoost: 0.82, style: 0.12, useSpeakerBoost: true },
   daoshen: { stability: 0.55, similarityBoost: 0.70, style: 0.20, useSpeakerBoost: true },
   muge:    { stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true },
 };
@@ -72,17 +73,21 @@ const CHARACTER_VOICE_SETTINGS: Record<string, {
 // Runtime cache: working voiceId resolved once per server process per character
 const resolvedVoiceIds: Record<string, string> = {};
 
-// ElevenLabs built-in premade voices — no voices_read permission needed, available on free plan.
-// Female voices ordered by warmth/naturalness for anuan.
-const PREMADE_FEMALE_VOICES = [
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // calm, warm
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // soft
-  { id: "LcfcDJNUP1GQjkzn1xUU", name: "Emily"   }, // calm
-  { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli"    }, // young
-  { id: "ThT5KcBeYPX3keUQqHPh", name: "Dorothy" }, // pleasant
-  { id: "piTKgcLEGmPE4e6mEKli", name: "Nicole"  }, // soft whisper
-  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily"    }, // female
-  { id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace"   }, // female
+// ElevenLabs built-in premade voices for anuan — probed in order, first success wins.
+// Priority: deep/calm male or neutral voices that handle Chinese better than bright female voices.
+const PREMADE_VOICES_FOR_ANUAN = [
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male, calm
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // deep, authoritative
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam"    }, // deep, calm
+  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm, deep male
+  { id: "cjVigY5qzO86Huf0OWal", name: "Eric"    }, // sincere male
+  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill"    }, // grounded, older
+  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady male
+  { id: "TX3LPaxmHKxFdv7VOQHJ", name: "Liam"    }, // calm male
+  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie" }, // casual male
+  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh"    }, // male
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // fallback female
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // last resort
 ];
 
 async function resolveVoiceId(
@@ -93,7 +98,7 @@ async function resolveVoiceId(
   if (resolvedVoiceIds[character]) return resolvedVoiceIds[character];
 
   // Probe each premade voice with a tiny TTS call; first success wins.
-  for (const voice of PREMADE_FEMALE_VOICES) {
+  for (const voice of PREMADE_VOICES_FOR_ANUAN) {
     try {
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
         method: "POST",

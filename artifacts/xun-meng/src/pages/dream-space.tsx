@@ -272,21 +272,25 @@ export default function DreamSpace() {
   const pendingTranscriptRef = useRef<string | null>(null);
 
   // Use a ref for voiceStatus so recognition callbacks never see stale state
-  const voiceStatusRef       = useRef<VoiceStatus>("idle");
-  const transcriptRef        = useRef<string | null>(null);
-  const handleSendRef        = useRef<(text?: string, voiceData?: { duration?: number }) => Promise<void>>(async () => {});
-  const requestingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const typingIntervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceStatusRef        = useRef<VoiceStatus>("idle");
+  const transcriptRef         = useRef<string | null>(null);
+  const interimTranscriptRef  = useRef<string | null>(null); // captures partial results
+  const typingStartedRef      = useRef<string | null>(null); // tracks which msgId typewriter started
+  const handleSendRef         = useRef<(text?: string, voiceData?: { duration?: number }) => Promise<void>>(async () => {});
+  const requestingTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingIntervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [typingMsgId,   setTypingMsgId]   = useState<string | null>(null);
   const [typingContent, setTypingContent] = useState<string>("");
 
-  function startTypewriter(msgId: string, fullText: string) {
+  function startTypewriter(msgId: string, fullText: string, intervalMs = 38) {
+    if (typingStartedRef.current === msgId) return; // already started
+    typingStartedRef.current = msgId;
     if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
     setTypingMsgId(msgId);
     setTypingContent("");
     let idx = 0;
-    const INTERVAL = 38;
+    const INTERVAL = intervalMs;
     typingIntervalRef.current = setInterval(() => {
       idx += 1;
       if (idx >= fullText.length) {
@@ -346,10 +350,13 @@ export default function DreamSpace() {
     };
 
     r.onresult = (e: any) => {
-      // Capture the latest final transcript
       for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) {
-          transcriptRef.current = e.results[i][0].transcript;
+          transcriptRef.current = t;        // best: final result
+          interimTranscriptRef.current = t; // keep in sync
+        } else {
+          interimTranscriptRef.current = t; // fallback if onend fires before final
         }
       }
     };
@@ -360,21 +367,23 @@ export default function DreamSpace() {
         requestingTimeoutRef.current = null;
       }
       transcriptRef.current = null;
+      interimTranscriptRef.current = null;
       const prev = voiceStatusRef.current;
       setVoiceStatus("idle");
       if (e.error === "not-allowed" || e.error === "permission-denied") {
         toast({ title: "没有获得麦克风权限，你也可以直接输入梦境。" });
       } else if (prev !== "idle") {
-        toast({ title: "我没有听清楚，已为你使用示例梦境继续。" });
-        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
+        toast({ title: "我没听清，可以再说一次。" });
       }
     };
 
     r.onend = () => {
       const prev = voiceStatusRef.current;
       if (prev === "idle" || prev === "error") return;
-      const text = transcriptRef.current;
+      // Prefer final transcript, fall back to last interim result
+      const text = transcriptRef.current || interimTranscriptRef.current;
       transcriptRef.current = null;
+      interimTranscriptRef.current = null;
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         pendingTranscriptRef.current = text;
         setVoiceStatus("processing");
@@ -382,8 +391,11 @@ export default function DreamSpace() {
       } else {
         setVoiceStatus("idle");
         if (text && text.trim()) {
+          console.log("[STT] real transcript =", text.trim());
           setTimeout(() => handleSendRef.current(text.trim()), 200);
         } else {
+          console.log("[STT] using fallback transcription");
+          toast({ title: "当前没有识别到语音，已用示例梦境演示。" });
           setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
         }
       }
@@ -488,12 +500,21 @@ export default function DreamSpace() {
   };
 
   // ── ElevenLabs TTS playback (anuan only for now) ─────────────────────────
-  const playTtsSafe = async (msgId: string, text: string, charKey: CharKey) => {
+  const playTtsSafe = async (
+    msgId: string,
+    text: string,
+    charKey: CharKey,
+    onPlayStart?: (audioDuration: number) => void,
+  ) => {
     if (charKey !== "anuan") {
       speak(text);
+      onPlayStart?.(text.length * 0.18); // rough estimate for browser TTS
       return;
     }
-    if (!ttsEnabledRef.current) return;
+    if (!ttsEnabledRef.current) {
+      onPlayStart?.(5);
+      return;
+    }
 
     // Cancel any ongoing TTS
     window.speechSynthesis.cancel();
@@ -519,6 +540,7 @@ export default function DreamSpace() {
           console.error("[TTS] fetch failed:", resp.status, errText);
           toast({ title: "语音暂时没有接通，已先显示文字。" });
           setTtsStatus("idle");
+          onPlayStart?.(5);
           return;
         }
         const blob = await resp.blob();
@@ -527,6 +549,7 @@ export default function DreamSpace() {
           console.error("[TTS] blob is empty");
           toast({ title: "语音暂时没有接通，已先显示文字。" });
           setTtsStatus("idle");
+          onPlayStart?.(5);
           return;
         }
         audioUrl = URL.createObjectURL(blob);
@@ -536,6 +559,7 @@ export default function DreamSpace() {
         console.error("[TTS] fetch error:", err);
         toast({ title: "语音暂时没有接通，已先显示文字。" });
         setTtsStatus("idle");
+        onPlayStart?.(5);
         return;
       }
     }
@@ -560,18 +584,25 @@ export default function DreamSpace() {
       URL.revokeObjectURL(audioUrl!);
       restoreBg();
     };
-    audio.onerror = restoreBg;
+    audio.onerror = () => {
+      onPlayStart?.(5); // start typewriter if not started yet
+      restoreBg();
+    };
 
     setTtsStatus("playing");
     try {
       await audio.play();
-      console.log("[TTS] play() success");
+      console.log("[TTS] play() success, duration:", audio.duration);
+      // Calibrate typewriter speed to audio duration
+      const dur = audio.duration || (text.length * 0.12);
+      onPlayStart?.(dur);
     } catch (err: any) {
       console.warn("[TTS] play() blocked:", err?.name, err?.message);
       if (err?.name === "NotAllowedError") {
-        // Browser blocked autoplay — show manual play button
         setTtsStatus("blocked");
+        onPlayStart?.(5); // start typewriter anyway
       } else {
+        onPlayStart?.(5);
         restoreBg();
       }
     }
@@ -671,8 +702,24 @@ export default function DreamSpace() {
 
       const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
       setMessages(prev => [...prev, reply]);
-      startTypewriter(reply.id, replyContent);
-      void playTtsSafe(reply.id, replyContent, activeKey);
+
+      if (activeKey === "anuan") {
+        // Anuan: defer typewriter until TTS starts playing so text and voice are in sync.
+        // Speed calibrated to audio duration. 3-second hard fallback in case TTS hangs.
+        const fallbackTimer = setTimeout(() => {
+          if (typingStartedRef.current !== reply.id) {
+            startTypewriter(reply.id, replyContent);
+          }
+        }, 3000);
+        void playTtsSafe(reply.id, replyContent, activeKey, (audioDuration: number) => {
+          clearTimeout(fallbackTimer);
+          const msPerChar = Math.max(30, Math.min(110, (audioDuration * 1000) / replyContent.length));
+          startTypewriter(reply.id, replyContent, msPerChar);
+        });
+      } else {
+        startTypewriter(reply.id, replyContent);
+        void playTtsSafe(reply.id, replyContent, activeKey);
+      }
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -727,6 +774,11 @@ export default function DreamSpace() {
             audioChunksRef.current = [];
             mediaRecorderRef.current = null;
             setVoiceStatus("idle");
+            if (transcript) {
+              console.log("[STT] real transcript (MediaRecorder path) =", transcript);
+            } else {
+              console.log("[STT] using fallback transcription (MediaRecorder path)");
+            }
             handleSendRef.current(transcript || FALLBACK_TRANSCRIPT, { duration });
           };
           mediaRecorderRef.current = mr;
@@ -1035,6 +1087,52 @@ export default function DreamSpace() {
         </AnimatePresence>
 
         <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charConfig.companionColor} />
+
+        {/* ── TTS SUBTITLE PANEL ── */}
+        <AnimatePresence>
+          {(ttsStatus === "playing" || ttsStatus === "loading") && (
+            <motion.div
+              key="subtitle"
+              initial={{ opacity: 0, y: 8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.97 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="w-full max-w-md rounded-2xl px-4 py-3"
+              style={{
+                background: "rgba(6, 6, 14, 0.78)",
+                backdropFilter: "blur(22px)",
+                WebkitBackdropFilter: "blur(22px)",
+                border: `1px solid hsl(${hsl} / 0.22)`,
+                boxShadow: `0 0 30px hsl(${hsl} / 0.10), inset 0 1px 0 rgba(255,255,255,0.04)`,
+              }}
+            >
+              <p className="text-[9px] tracking-[0.28em] mb-1.5 uppercase" style={{ color: `hsl(${hsl} / 0.50)` }}>
+                {charConfig.name}正在说
+              </p>
+              {ttsStatus === "loading" ? (
+                <div className="flex gap-[3px] items-center h-[18px]">
+                  {[0, 1, 2].map(i => (
+                    <motion.div key={i} className="w-[3px] rounded-full"
+                      style={{ background: `hsl(${hsl} / 0.45)` }}
+                      animate={{ height: ["4px", "12px", "4px"] }}
+                      transition={{ duration: 0.6 + i * 0.12, repeat: Infinity, ease: "easeInOut", delay: i * 0.1 }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.65)" }}>
+                  {typingContent || "…"}
+                  <motion.span
+                    className="inline-block w-[2px] h-[1em] ml-[2px] align-middle rounded-full"
+                    style={{ backgroundColor: charConfig.particleColor }}
+                    animate={{ opacity: [0.7, 0, 0.7] }}
+                    transition={{ duration: 0.8, repeat: Infinity }}
+                  />
+                </p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── RESPONSE / WELCOME CARD ── */}
         <div className="w-full max-w-md min-h-[80px] flex items-center justify-center mt-1">
