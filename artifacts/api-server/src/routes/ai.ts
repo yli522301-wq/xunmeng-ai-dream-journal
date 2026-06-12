@@ -98,7 +98,7 @@ async function resolveVoiceId(
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
         method: "POST",
         headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
-        body: JSON.stringify({ text: "好", model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+        body: JSON.stringify({ text: "好", model_id: "eleven_multilingual_v2", language_code: "zh", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
       });
       if (r.ok) {
         resolvedVoiceIds[character] = voice.id;
@@ -132,7 +132,7 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: "POST",
       headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text: text.slice(0, 500), model_id: modelId, voice_settings: voiceSettings }),
+      body: JSON.stringify({ text: text.slice(0, 500), model_id: modelId, language_code: "zh", voice_settings: voiceSettings }),
     });
     if (!r.ok) {
       const detail = await r.text().catch(() => "(no body)");
