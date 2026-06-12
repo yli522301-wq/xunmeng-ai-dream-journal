@@ -259,7 +259,7 @@ export default function DreamSpace() {
   const [ttsVolume, setTtsVolumeState] = useState(() => {
     try { return Number(localStorage.getItem("xm-tts-volume") ?? "0.7"); } catch { return 0.7; }
   });
-  const [ttsStatus, setTtsStatus] = useState<"idle" | "loading" | "playing">("idle");
+  const [ttsStatus, setTtsStatus] = useState<"idle" | "loading" | "playing" | "blocked">("idle");
   const [ttsVoiceOpen, setTtsVoiceOpen] = useState(false);
   const ttsEnabledRef  = useRef(true);
   const ttsVolumeRef   = useRef(0.7);
@@ -274,7 +274,7 @@ export default function DreamSpace() {
   // Use a ref for voiceStatus so recognition callbacks never see stale state
   const voiceStatusRef       = useRef<VoiceStatus>("idle");
   const transcriptRef        = useRef<string | null>(null);
-  const handleSendRef        = useRef<(text?: string, voiceData?: { audioUrl?: string; duration?: number }) => Promise<void>>(async () => {});
+  const handleSendRef        = useRef<(text?: string, voiceData?: { duration?: number }) => Promise<void>>(async () => {});
   const requestingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingIntervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -508,35 +508,46 @@ export default function DreamSpace() {
     if (!audioUrl) {
       setTtsStatus("loading");
       try {
-        const resp = await fetch("/api/tts", {
+        const resp = await fetch("/api/ai/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: text.slice(0, 500), character: charKey }),
         });
-        if (!resp.ok) throw new Error(`TTS ${resp.status}`);
+        console.log("[TTS] response status:", resp.status, resp.headers.get("content-type"));
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => "");
+          console.error("[TTS] fetch failed:", resp.status, errText);
+          toast({ title: "语音暂时没有接通，已先显示文字。" });
+          setTtsStatus("idle");
+          return;
+        }
         const blob = await resp.blob();
+        console.log("[TTS] blob size:", blob.size);
+        if (blob.size === 0) {
+          console.error("[TTS] blob is empty");
+          toast({ title: "语音暂时没有接通，已先显示文字。" });
+          setTtsStatus("idle");
+          return;
+        }
         audioUrl = URL.createObjectURL(blob);
+        console.log("[TTS] audioUrl created:", !!audioUrl);
         ttsCacheRef.current.set(msgId, audioUrl);
-      } catch {
+      } catch (err) {
+        console.error("[TTS] fetch error:", err);
         toast({ title: "语音暂时没有接通，已先显示文字。" });
         setTtsStatus("idle");
         return;
       }
     }
 
-    // Capture current bg volume to restore later
     const originalBgVol = bgAudioRef.current?.volume ?? bgMusicVolume;
-
     const audio = new Audio(audioUrl);
     audio.volume = ttsVolumeRef.current;
     ttsAudioRef.current = audio;
 
-    // Duck background music
     if (bgAudioRef.current && bgMusicPlaying) {
       bgAudioRef.current.volume = originalBgVol * 0.3;
     }
-
-    setTtsStatus("playing");
 
     const restoreBg = () => {
       if (bgAudioRef.current && bgMusicPlaying) bgAudioRef.current.volume = originalBgVol;
@@ -544,11 +555,36 @@ export default function DreamSpace() {
       setTtsStatus("idle");
     };
 
-    audio.onended = restoreBg;
+    audio.onended = () => {
+      ttsCacheRef.current.delete(msgId);
+      URL.revokeObjectURL(audioUrl!);
+      restoreBg();
+    };
     audio.onerror = restoreBg;
 
-    audio.play().catch(() => {
-      restoreBg();
+    setTtsStatus("playing");
+    try {
+      await audio.play();
+      console.log("[TTS] play() success");
+    } catch (err: any) {
+      console.warn("[TTS] play() blocked:", err?.name, err?.message);
+      if (err?.name === "NotAllowedError") {
+        // Browser blocked autoplay — show manual play button
+        setTtsStatus("blocked");
+      } else {
+        restoreBg();
+      }
+    }
+  };
+
+  const handleManualPlay = () => {
+    if (!ttsAudioRef.current) return;
+    ttsAudioRef.current.play().then(() => {
+      setTtsStatus("playing");
+      console.log("[TTS] manual play() success");
+    }).catch(err => {
+      console.error("[TTS] manual play() failed:", err);
+      setTtsStatus("idle");
     });
   };
 
@@ -560,7 +596,7 @@ export default function DreamSpace() {
   }, [characters]);
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const handleSend = async (text?: string, voiceData?: { audioUrl?: string; duration?: number }) => {
+  const handleSend = async (text?: string, voiceData?: { duration?: number }) => {
     const msg = (text ?? inputText).trim();
     const imgUrl = text ? null : pendingImageDataUrl;
     if (!msg && !imgUrl && !voiceData) return;
@@ -583,7 +619,6 @@ export default function DreamSpace() {
       content: msg || (imgUrl ? "[图片]" : ""),
       imageUrl: imgUrl ?? undefined,
       thumbnailUrl,
-      audioUrl: voiceData?.audioUrl,
       audioDuration: voiceData?.duration,
       transcription: voiceData ? (msg || undefined) : undefined,
       timestamp: nowTime(),
@@ -689,25 +724,10 @@ export default function DreamSpace() {
             const transcript = pendingTranscriptRef.current ?? "";
             pendingTranscriptRef.current = null;
             const duration = Math.max(1, Math.round((Date.now() - audioRecordStartRef.current) / 1000));
-            const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
             audioChunksRef.current = [];
             mediaRecorderRef.current = null;
-            if (blob.size > 1.5 * 1024 * 1024) {
-              setVoiceStatus("idle");
-              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT);
-              return;
-            }
-            const reader = new FileReader();
-            reader.onload = () => {
-              setVoiceStatus("idle");
-              const audioUrl = reader.result as string;
-              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT, { audioUrl, duration });
-            };
-            reader.onerror = () => {
-              setVoiceStatus("idle");
-              handleSendRef.current(transcript || FALLBACK_TRANSCRIPT);
-            };
-            reader.readAsDataURL(blob);
+            setVoiceStatus("idle");
+            handleSendRef.current(transcript || FALLBACK_TRANSCRIPT, { duration });
           };
           mediaRecorderRef.current = mr;
           mr.start();
@@ -1424,6 +1444,15 @@ export default function DreamSpace() {
               style={{ color: "rgba(255,255,255,0.32)" }}>
               {ttsStatus === "loading"  && "阿暖正在开口…"}
               {ttsStatus === "playing"  && "阿暖正在说话…"}
+              {ttsStatus === "blocked"  && (
+                <button
+                  onClick={handleManualPlay}
+                  className="underline underline-offset-2"
+                  style={{ color: "rgba(255,255,255,0.55)", fontSize: "11px", letterSpacing: "0.2em" }}
+                >
+                  点击听阿暖说话
+                </button>
+              )}
             </motion.p>
           ) : voiceStatus !== "idle" ? (
             <motion.p
