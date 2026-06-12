@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, LayoutList, Sparkles, Telescope } from "lucide-react";
+import { ArrowLeft, LayoutList, Sparkles } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
 // @ts-ignore
 import CircularGallery from "@/components/CircularGallery.jsx";
@@ -126,13 +126,15 @@ export default function DreamCorridor() {
               transition={{ delay: 0.2, duration: 0.7 }}>
               <CircularGallery
                 items={galleryItems}
-                bend={2.4}
-                borderRadius={0.055}
-                scrollEase={0.040}
+                bend={2.6}
+                borderRadius={0.045}
+                scrollEase={0.038}
                 scrollSpeed={2}
-                cardWidth={2.55}
-                cardHeight={1.96}
-                cardStep={2.80}
+                cardWidth={2.10}
+                cardHeight={2.80}
+                cardStep={2.45}
+                cameraZ={4}
+                fov={40}
                 onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
               />
             </motion.div>
@@ -175,47 +177,26 @@ export default function DreamCorridor() {
           </p>
         </motion.div>
 
-        {/* Right: dream-map + list */}
-        <motion.div
-          className="flex items-center gap-2 mt-0.5"
+        {/* Right: archive list only */}
+        <motion.button
+          onClick={() => setLocation("/archive/list")}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full mt-0.5"
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            backdropFilter: "blur(12px)",
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.35 }}
+          whileHover={{ background: "rgba(255,255,255,0.10)", borderColor: "rgba(255,255,255,0.16)" }}
+          whileTap={{ scale: 0.94 }}
         >
-          <motion.button
-            onClick={() => setLocation("/dream-map")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-            style={{
-              background: "rgba(107,140,255,0.07)",
-              border: "1px solid rgba(107,140,255,0.16)",
-              backdropFilter: "blur(12px)",
-            }}
-            whileHover={{ background: "rgba(107,140,255,0.14)", borderColor: "rgba(107,140,255,0.28)" }}
-            whileTap={{ scale: 0.94 }}
-          >
-            <Telescope size={11} style={{ color: "rgba(107,140,255,0.60)" }} />
-            <span className="text-[10px] tracking-wide" style={{ color: "rgba(107,140,255,0.55)" }}>
-              梦境星图
-            </span>
-          </motion.button>
-
-          <motion.button
-            onClick={() => setLocation("/archive/list")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.09)",
-              backdropFilter: "blur(12px)",
-            }}
-            whileHover={{ background: "rgba(255,255,255,0.10)", borderColor: "rgba(255,255,255,0.16)" }}
-            whileTap={{ scale: 0.94 }}
-          >
-            <LayoutList size={11} style={{ color: "rgba(255,255,255,0.38)" }} />
-            <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.34)" }}>
-              全部梦境
-            </span>
-          </motion.button>
-        </motion.div>
+          <LayoutList size={11} style={{ color: "rgba(255,255,255,0.38)" }} />
+          <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.34)" }}>
+            档案列表
+          </span>
+        </motion.button>
       </div>
 
       {/* ── Bottom gradient scrim ── */}
@@ -224,33 +205,23 @@ export default function DreamCorridor() {
           style={{ background: "linear-gradient(to top, rgba(5,5,10,0.72) 0%, rgba(5,5,10,0.20) 70%, transparent 100%)" }} />
       )}
 
-      {/* ── Footer overlay hint ── */}
+      {/* ── Footer hint ── */}
       {hasDreams && (
         <motion.div
-          className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-center gap-5 pb-5"
+          className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-center gap-4 pb-5"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
+          transition={{ delay: 0.8 }}
         >
           <span className="text-[10px] tracking-[0.22em]"
-            style={{ color: "rgba(255,255,255,0.14)" }}>
+            style={{ color: "rgba(255,255,255,0.12)" }}>
             拖动浏览
           </span>
-          <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.08)" }} />
+          <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.06)" }} />
           <span className="text-[10px] tracking-[0.22em]"
-            style={{ color: "rgba(255,255,255,0.14)" }}>
+            style={{ color: "rgba(255,255,255,0.12)" }}>
             轻点卡片进入梦境
           </span>
-          <div className="w-px h-3" style={{ background: "rgba(255,255,255,0.08)" }} />
-          <button
-            onClick={() => setLocation("/archive/list")}
-            className="text-[10px] tracking-[0.18em]"
-            style={{ color: "rgba(107,140,255,0.32)" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(107,140,255,0.65)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(107,140,255,0.32)")}
-          >
-            查看全部梦境 →
-          </button>
         </motion.div>
       )}
     </motion.div>

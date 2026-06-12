@@ -4,7 +4,6 @@
   position: relative;
   cursor: grab;
   overflow: hidden;
-  border-radius: 16px;
 }
 
 .cg-root:active {
@@ -15,5 +14,4 @@
   display: block !important;
   width: 100% !important;
   height: 100% !important;
-  border-radius: 16px;
 }

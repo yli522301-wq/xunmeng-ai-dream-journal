@@ -116,8 +116,9 @@ function _playSwipe() {
 }
 
 // ── Canvas texture builders ───────────────────────────────────────────────────
-const CVS_W = 640;
-const CVS_H = 480;
+// Portrait orientation (3:4) matches the taller card layout
+const CVS_W = 480;
+const CVS_H = 640;
 
 const CHAR_PAL = {
   daoshen: { a: "#081830", b: "#030410", glow: "rgba(107,140,255,0.60)" },
@@ -140,7 +141,7 @@ function _addStars(ctx, n) {
 function _stampTitle(ctx, title) {
   if (!title) return;
   ctx.save();
-  ctx.font = "500 22px serif";
+  ctx.font = "500 28px serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   ctx.shadowColor = "rgba(0,0,0,0.98)";
@@ -223,6 +224,8 @@ export default function CircularGallery({
   cardWidth    = 1.72,
   cardHeight   = 1.32,
   cardStep     = 1.88,
+  cameraZ      = 5,
+  fov          = 40,
   onItemClick,
 }) {
   const mountRef   = useRef(null);
@@ -260,9 +263,9 @@ export default function CircularGallery({
       container.appendChild(canvas);
 
       // Camera
-      const FOV  = 40;
+      const FOV  = fov;
       const camera = new Camera(gl, { fov: FOV });
-      camera.position.set(0, 0, 5);
+      camera.position.set(0, 0, cameraZ);
 
       const scene = new Transform();
 
