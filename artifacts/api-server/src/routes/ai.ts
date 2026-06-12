@@ -61,53 +61,90 @@ function rnd<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)
 
 // ─── ElevenLabs TTS config ────────────────────────────────────────────────────
 
-const CHARACTER_VOICES: Record<string, {
-  voiceId: string; modelId: string;
+const CHARACTER_VOICE_SETTINGS: Record<string, {
   stability: number; similarityBoost: number; style: number; useSpeakerBoost: boolean;
 }> = {
-  anuan: {
-    voiceId: "9BWtsMINqrJLrRacOk9x", // Aria — warm, natural female
-    modelId: "eleven_multilingual_v2",
-    stability: 0.45, similarityBoost: 0.75, style: 0.35, useSpeakerBoost: true,
-  },
-  daoshen: {
-    voiceId: "9BWtsMINqrJLrRacOk9x",
-    modelId: "eleven_multilingual_v2",
-    stability: 0.55, similarityBoost: 0.70, style: 0.20, useSpeakerBoost: true,
-  },
-  muge: {
-    voiceId: "9BWtsMINqrJLrRacOk9x",
-    modelId: "eleven_multilingual_v2",
-    stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true,
-  },
+  anuan:   { stability: 0.45, similarityBoost: 0.75, style: 0.35, useSpeakerBoost: true },
+  daoshen: { stability: 0.55, similarityBoost: 0.70, style: 0.20, useSpeakerBoost: true },
+  muge:    { stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true },
 };
 
-async function elevenLabsTts(text: string, character: string, apiKey: string): Promise<Buffer> {
-  const cfg = CHARACTER_VOICES[character] ?? CHARACTER_VOICES.anuan;
-  const body = JSON.stringify({
-    text: text.slice(0, 500),
-    model_id: cfg.modelId,
-    voice_settings: {
-      stability: cfg.stability,
-      similarity_boost: cfg.similarityBoost,
-      style: cfg.style,
-      use_speaker_boost: cfg.useSpeakerBoost,
-    },
-  });
-  const headers = { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" };
+// Runtime cache: working voiceId resolved once per server process per character
+const resolvedVoiceIds: Record<string, string> = {};
+
+// ElevenLabs built-in premade voices — no voices_read permission needed, available on free plan.
+// Female voices ordered by warmth/naturalness for anuan.
+const PREMADE_FEMALE_VOICES = [
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // calm, warm
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // soft
+  { id: "LcfcDJNUP1GQjkzn1xUU", name: "Emily"   }, // calm
+  { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli"    }, // young
+  { id: "ThT5KcBeYPX3keUQqHPh", name: "Dorothy" }, // pleasant
+  { id: "piTKgcLEGmPE4e6mEKli", name: "Nicole"  }, // soft whisper
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily"    }, // female
+  { id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace"   }, // female
+];
+
+async function resolveVoiceId(
+  character: string,
+  apiKey: string,
+  log: (msg: string, data?: object) => void,
+): Promise<string> {
+  if (resolvedVoiceIds[character]) return resolvedVoiceIds[character];
+
+  // Probe each premade voice with a tiny TTS call; first success wins.
+  for (const voice of PREMADE_FEMALE_VOICES) {
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+        body: JSON.stringify({ text: "好", model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+      });
+      if (r.ok) {
+        resolvedVoiceIds[character] = voice.id;
+        log(`TTS voice probe success — using ${voice.name}`, { character, voiceId: voice.id, voiceName: voice.name });
+        return voice.id;
+      }
+      const detail = await r.text().catch(() => "");
+      log(`TTS voice probe failed for ${voice.name}`, { status: r.status, detail });
+    } catch (err) {
+      log(`TTS voice probe error for ${voice.name}`, { err: String(err) });
+    }
+  }
+
+  throw new Error("No usable ElevenLabs voice found — all probes failed");
+}
+
+async function elevenLabsTts(text: string, character: string, apiKey: string, log: (msg: string, data?: object) => void): Promise<Buffer> {
+  const settings = CHARACTER_VOICE_SETTINGS[character] ?? CHARACTER_VOICE_SETTINGS.anuan;
+  const voiceId  = await resolveVoiceId(character, apiKey, log);
+
+  log("TTS voice resolved", { character, voiceId });
+
+  const voiceSettings = {
+    stability:        settings.stability,
+    similarity_boost: settings.similarityBoost,
+    style:            settings.style,
+    use_speaker_boost: settings.useSpeakerBoost,
+  };
 
   const tryModel = async (modelId: string): Promise<ArrayBuffer> => {
-    const b = JSON.stringify({ ...JSON.parse(body), model_id: modelId });
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${cfg.voiceId}`, {
-      method: "POST", headers, body: b,
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({ text: text.slice(0, 500), model_id: modelId, voice_settings: voiceSettings }),
     });
-    if (!r.ok) throw new Error(`ElevenLabs ${r.status}`);
+    if (!r.ok) {
+      const detail = await r.text().catch(() => "(no body)");
+      throw new Error(`ElevenLabs TTS ${r.status} [${modelId}]: ${detail}`);
+    }
     return r.arrayBuffer();
   };
 
   try {
-    return Buffer.from(await tryModel(cfg.modelId));
-  } catch {
+    return Buffer.from(await tryModel("eleven_multilingual_v2"));
+  } catch (err1) {
+    log("TTS primary model failed, trying flash fallback", { err: String(err1) });
     return Buffer.from(await tryModel("eleven_flash_v2_5"));
   }
 }
@@ -346,13 +383,14 @@ router.post("/ai/tts", async (req, res): Promise<void> => {
     res.status(503).json({ error: "TTS not configured" }); return;
   }
   try {
-    const buf = await elevenLabsTts(text.trim(), typeof character === "string" ? character : "anuan", apiKey);
+    const log = (msg: string, data?: object) => req.log.info(data ?? {}, msg);
+    const buf = await elevenLabsTts(text.trim(), typeof character === "string" ? character : "anuan", apiKey, log);
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     res.send(buf);
   } catch (err) {
-    req.log.error({ err }, "TTS failed");
-    res.status(502).json({ error: "TTS service unavailable" });
+    req.log.error({ err: String(err) }, "TTS failed — full detail above");
+    res.status(502).json({ error: String(err) });
   }
 });
 
