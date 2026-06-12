@@ -76,16 +76,14 @@ const resolvedVoiceIds: Record<string, string> = {};
 // ElevenLabs built-in premade voices for anuan — probed in order, first success wins.
 // Priority: deep/calm male or neutral voices that handle Chinese better than bright female voices.
 const PREMADE_VOICES_FOR_ANUAN = [
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male, calm
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // deep, authoritative
-  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam"    }, // deep, calm
+  { id: "ZQe5CZNOzWyzPSCn5a3c", name: "James"   }, // mature, weighty, experienced — user selected
+  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill"    }, // very deep, gravelly
+  { id: "GBv7mTt0atIp3Br8iCZE", name: "Thomas"  }, // deep narrative
+  { id: "D38z5RcWu1voky8WS1ja", name: "Fin"     }, // textured, slightly rough
   { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm, deep male
-  { id: "cjVigY5qzO86Huf0OWal", name: "Eric"    }, // sincere male
-  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill"    }, // grounded, older
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // deep, restrained
   { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady male
-  { id: "TX3LPaxmHKxFdv7VOQHJ", name: "Liam"    }, // calm male
-  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie" }, // casual male
-  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh"    }, // male
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male
   { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // fallback female
   { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // last resort
 ];
