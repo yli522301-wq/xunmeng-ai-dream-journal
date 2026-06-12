@@ -315,6 +315,43 @@ export interface AiSettings {
   modelName: string;
 }
 
+export type DreamChatHistoryItemRole = typeof DreamChatHistoryItemRole[keyof typeof DreamChatHistoryItemRole];
+
+
+export const DreamChatHistoryItemRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface DreamChatHistoryItem {
+  role: DreamChatHistoryItemRole;
+  content: string;
+  /** @nullable */
+  imageUrl?: string | null;
+}
+
+export type DreamChatInputActiveCharacter = typeof DreamChatInputActiveCharacter[keyof typeof DreamChatInputActiveCharacter];
+
+
+export const DreamChatInputActiveCharacter = {
+  daoshen: 'daoshen',
+  muge: 'muge',
+  anuan: 'anuan',
+} as const;
+
+export interface DreamChatInput {
+  activeCharacter: DreamChatInputActiveCharacter;
+  history: DreamChatHistoryItem[];
+  userInput: string;
+  /** @nullable */
+  imageUrl?: string | null;
+}
+
+export interface DreamChatResult {
+  reply: string;
+  isMock: boolean;
+}
+
 export type GetChatHistoryParams = {
 characterId?: string;
 dreamId?: string;

@@ -33,6 +33,8 @@ import type {
   ChatMessage,
   ClearChatHistoryParams,
   Dream,
+  DreamChatInput,
+  DreamChatResult,
   DreamInput,
   DreamStats,
   DreamUpdate,
@@ -1538,4 +1540,75 @@ export function useGetAiSettings<TData = Awaited<ReturnType<typeof getAiSettings
 
 
 
+
+export const getDreamChatUrl = () => {
+
+
+
+
+  return `/api/ai/dream-chat`
+}
+
+/**
+ * @summary Multimodal dream chat with character persona (text + optional image)
+ */
+export const dreamChat = async (dreamChatInput: DreamChatInput, options?: RequestInit): Promise<DreamChatResult> => {
+
+  return customFetch<DreamChatResult>(getDreamChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      dreamChatInput,)
+  }
+);}
+
+
+
+
+export const getDreamChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dreamChat>>, TError,{data: BodyType<DreamChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dreamChat>>, TError,{data: BodyType<DreamChatInput>}, TContext> => {
+
+const mutationKey = ['dreamChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dreamChat>>, {data: BodyType<DreamChatInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  dreamChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DreamChatMutationResult = NonNullable<Awaited<ReturnType<typeof dreamChat>>>
+    export type DreamChatMutationBody = BodyType<DreamChatInput>
+    export type DreamChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Multimodal dream chat with character persona (text + optional image)
+ */
+export const useDreamChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dreamChat>>, TError,{data: BodyType<DreamChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dreamChat>>,
+        TError,
+        {data: BodyType<DreamChatInput>},
+        TContext
+      > => {
+      return useMutation(getDreamChatMutationOptions(options));
+    }
 

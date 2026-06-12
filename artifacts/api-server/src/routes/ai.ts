@@ -4,6 +4,7 @@ import {
   AiOrganizeDreamBody,
   AiChatBody,
   AiRecognizeImageBody,
+  DreamChatBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -157,6 +158,80 @@ router.post("/ai/chat", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "AI chat failed → mock");
     res.json({ reply: rnd(MOCK_CHAT), isMock: true });
+  }
+});
+
+// ── Per-character system prompts ──────────────────────────────────────────────
+const DREAM_CHAR_PROMPTS: Record<string, string> = {
+  daoshen: "你是岛深，「巡梦」的梦境解析者。性格冷静、理性，带有深海般的沉静感。擅长分析梦境的结构、象征意义和潜意识线索，语气克制、清醒，略带锋利。不要过度安慰，重点是帮用户看清梦的内在结构与深层意涵。如果用户上传了图片，请结合图片内容进行回应。每次回复控制在80到180字左右，语气自然，不要像机器人，结尾提一个引导用户继续深入的小问题。",
+  muge: "你是暮歌，「巡梦」的梦境叙述者。性格诗意，带有黄昏般的画面感与柔光。擅长把梦境解释成有情绪流动的故事和意象，语气柔和、文学化，节奏慢一点。重点是帮用户感受梦里的画面质感与情绪流动，而不是分析原因。如果用户上传了图片，请结合图片的色调、氛围和细节进行诗意回应。每次回复控制在80到180字左右，语气自然，结尾提一个关于画面或感受的问题。",
+  anuan: "你是阿暖，「巡梦」的梦境陪伴者。性格温暖，像一个温柔的朋友。先接住用户的情绪，让他们感觉被听见，再慢慢引导。不要急着解释梦，先陪着用户在感受里待一会儿。如果用户上传了图片，请先感受图片的情绪氛围，再温柔地回应。每次回复控制在80到180字左右，语气自然、生活化，结尾问用户现在的感受或引导继续说。",
+};
+
+const DREAM_CHAT_MOCK: Record<string, string[]> = {
+  daoshen: [
+    "我先看这个梦的结构。你描述的场景里有一种被追赶或被限制的张力——这往往是潜意识在用象征语言说话。反复出现的感觉，通常指向清醒时回避的某个问题。这个梦里，让你印象最深的是哪个细节？",
+    "从象征层面看，这几个元素值得注意：运动的方向、空间的边界、情绪底色。梦里的地形通常是内心状态的镜像。你梦里的空间，是开阔的还是压迫的？",
+    "有意思。这个意象的核心是一种「距离感」——你和某个目标之间的距离不是在缩短，而是在维持。这种模式在现实里，有对应的关系或处境吗？",
+  ],
+  muge: [
+    "这个梦像一条被拉长的路，终点像雾一样往后退。那种追不上的感觉，有时候不是在追一个地方，而是在追一个正在离开的自己。梦把它变成了距离。你梦里的光线是什么颜色的？",
+    "你说的画面，让我想到一种感觉——路在继续，人却站着不动。梦里的距离往往是心里距离的倒影。那个场景里有什么声音吗，还是很安静？",
+    "这些碎片拼在一起，像一幅没有标题的画。梦境有自己的情绪诗学，留下来的感觉比情节更重要。你醒来后，身体里留着什么颜色的心情？",
+  ],
+  anuan: [
+    "先别急着解释它。光是这个梦留下的感觉，就已经很值得被看见了。你把它说出来了，有没有觉得稍微轻松了一点点？",
+    "听你说完，我心里有点紧。这个梦好像带着一些你平时没有说出口的东西。不用讲完整，你现在，感觉怎么样？",
+    "嗯，我听到了。不管梦里发生了什么，它留下来的那种情绪是真实的。我们可以慢慢聊，你愿意再告诉我多一点吗？",
+  ],
+};
+
+router.post("/ai/dream-chat", async (req, res): Promise<void> => {
+  const parsed = DreamChatBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
+  const { activeCharacter, history, userInput, imageUrl } = parsed.data;
+
+  const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.muge;
+  const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.muge;
+
+  if (!apiKey) {
+    req.log.info({ activeCharacter }, "dream-chat: mock (no key)");
+    res.json({ reply: rnd(mockPool), isMock: true });
+    return;
+  }
+
+  try {
+    type ContentPart =
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string; detail: "low" } };
+    type OAIMsg = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
+
+    const buildContent = (text: string, img?: string | null): string | ContentPart[] => {
+      if (!img) return text || "(空)";
+      const parts: ContentPart[] = [{ type: "image_url", image_url: { url: img, detail: "low" } }];
+      if (text) parts.push({ type: "text", text });
+      return parts;
+    };
+
+    const oaiMessages: OAIMsg[] = [
+      { role: "system", content: sysPrompt },
+      ...history.map(item => ({
+        role: item.role as "user" | "assistant",
+        content: item.role === "user"
+          ? buildContent(item.content, item.imageUrl)
+          : item.content,
+      })),
+      { role: "user", content: buildContent(userInput, imageUrl) },
+    ];
+
+    const reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
+    res.json({ reply, isMock: false });
+  } catch (err) {
+    req.log.error({ err }, "dream-chat failed → mock");
+    res.json({ reply: rnd(mockPool), isMock: true });
   }
 });
 

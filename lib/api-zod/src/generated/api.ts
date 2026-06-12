@@ -382,3 +382,23 @@ export const GetAiSettingsResponse = zod.object({
 })
 
 
+/**
+ * @summary Multimodal dream chat with character persona (text + optional image)
+ */
+export const DreamChatBody = zod.object({
+  "activeCharacter": zod.enum(['daoshen', 'muge', 'anuan']),
+  "history": zod.array(zod.object({
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "imageUrl": zod.string().nullish()
+})),
+  "userInput": zod.string(),
+  "imageUrl": zod.string().nullish()
+})
+
+export const DreamChatResponse = zod.object({
+  "reply": zod.string(),
+  "isMock": zod.boolean()
+})
+
+

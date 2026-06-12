@@ -403,6 +403,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/AiSettings"
 
+  /ai/dream-chat:
+    post:
+      operationId: dreamChat
+      tags: [ai]
+      summary: Multimodal dream chat with character persona (text + optional image)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DreamChatInput"
+      responses:
+        "200":
+          description: Dream chat reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DreamChatResult"
+
 components:
   schemas:
     HealthStatus:
@@ -815,3 +834,47 @@ components:
           type: boolean
         modelName:
           type: string
+
+    DreamChatHistoryItem:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+
+    DreamChatInput:
+      type: object
+      required:
+        - activeCharacter
+        - history
+        - userInput
+      properties:
+        activeCharacter:
+          type: string
+          enum: [daoshen, muge, anuan]
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/DreamChatHistoryItem"
+        userInput:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+
+    DreamChatResult:
+      type: object
+      required:
+        - reply
+        - isMock
+      properties:
+        reply:
+          type: string
+        isMock:
+          type: boolean

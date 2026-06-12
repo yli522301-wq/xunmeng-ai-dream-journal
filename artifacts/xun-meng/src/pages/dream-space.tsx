@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   useGetActiveCharacter, useListCharacters, useActivateCharacter,
-  useGetAiSettings, useAiChat, useCreateDream, useAiRecognizeImage,
+  useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen } from "lucide-react";
@@ -232,9 +232,9 @@ export default function DreamSpace() {
   const { data: activeChar, refetch: refetchActive } = useGetActiveCharacter();
   const { data: characters } = useListCharacters();
   const { data: settings }   = useGetAiSettings();
-  const activateMutation    = useActivateCharacter();
-  const chatMutation        = useAiChat();
-  const createDreamMutation = useCreateDream();
+  const activateMutation     = useActivateCharacter();
+  const dreamChatMutation    = useDreamChat();
+  const createDreamMutation  = useCreateDream();
   const recognizeMutation   = useAiRecognizeImage();
 
   const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
@@ -487,25 +487,52 @@ export default function DreamSpace() {
     setMessages(updatedMsgs);
 
     try {
+      let replyContent: string;
+      let usedMock = false;
+
       if (!settings?.hasApiKey) {
-        // Local mock: delay 600–1000 ms to feel natural
-        const delay = 600 + Math.random() * 400;
-        await new Promise(r => setTimeout(r, delay));
-        const replyContent = getMockReply(activeKey, msg, updatedMsgs);
-        const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
-        setMessages(prev => [...prev, reply]);
-        startTypewriter(reply.id, replyContent);
-        speak(replyContent);
+        // No API key — use local character-specific mock
+        await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+        replyContent = getMockReply(activeKey, msg, updatedMsgs);
+        usedMock = true;
       } else {
-        const apiHistory = messagesToApiHistory(updatedMsgs).slice(-10);
-        const res = await chatMutation.mutateAsync({
-          data: { message: msg, history: apiHistory, characterSystemPrompt: getSystemPrompt(activeKey) },
-        });
-        const reply: ChatMessage = { id: genId(), role: activeKey, content: res.reply, timestamp: nowTime() };
-        setMessages(prev => [...prev, reply]);
-        startTypewriter(reply.id, res.reply);
-        speak(res.reply);
+        try {
+          // Build history: last ≤12 turns before the current message
+          const historyItems = updatedMsgs.slice(-13, -1).map(m => ({
+            role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+            content: m.role === "user"
+              ? m.content
+              : `[${CHAR_MAP[m.role as CharKey]?.name ?? m.role}] ${m.content}`,
+            imageUrl: m.imageUrl ?? null,
+          }));
+
+          const res = await dreamChatMutation.mutateAsync({
+            data: {
+              activeCharacter: activeKey,
+              history: historyItems,
+              userInput: msg || "[图片]",
+              imageUrl: imgUrl ?? null,
+            },
+          });
+          replyContent = res.reply;
+          if (res.isMock) usedMock = true;
+        } catch {
+          // API call failed — fall back to local mock silently with toast
+          await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
+          replyContent = getMockReply(activeKey, msg, updatedMsgs);
+          usedMock = true;
+        }
       }
+
+      // Only show the mock toast when the user expected a real reply
+      if (usedMock && settings?.hasApiKey) {
+        toast({ title: "AI 暂时没有接通，已切换为演示回复。" });
+      }
+
+      const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
+      setMessages(prev => [...prev, reply]);
+      startTypewriter(reply.id, replyContent);
+      speak(replyContent);
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
