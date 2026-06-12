@@ -277,6 +277,14 @@ export default function DreamSpace() {
   const interimTranscriptRef  = useRef<string | null>(null); // captures partial results
   const typingStartedRef      = useRef<string | null>(null); // tracks which msgId typewriter started
   const handleSendRef         = useRef<(text?: string, voiceData?: { duration?: number }) => Promise<void>>(async () => {});
+
+  // ── Anuan wake-up interaction ─────────────────────────────────────────────
+  const USER_NAME = "Charlie"; // Demo value — swap for real user profile later
+  const [wakeText,    setWakeText]    = useState<string | null>(null);
+  const [wakeTyped,   setWakeTyped]   = useState("");
+  const [wakeClicked, setWakeClicked] = useState(false);
+  const wakeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wakeTimeoutRef  = useRef<ReturnType<typeof setTimeout>  | null>(null);
   const requestingTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingIntervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -310,6 +318,54 @@ export default function DreamSpace() {
   }
   // Derived alias used in render
   const voiceStatus   = voiceStatusS;
+
+  // ── Anuan wake-up interaction ─────────────────────────────────────────────
+  function getWakePhrases(): string[] {
+    const n = USER_NAME;
+    return [
+      "Who's out there?",
+      `Hey ${n}… you there?`,
+      `How are you doing today, ${n}?`,
+      "Tell me, what kind of dream found you today?",
+      "Hey. I'm here. What did you see last night?",
+      "You look like you brought a strange dream with you.",
+      `Alright, ${n}. What are we looking at today?`,
+      "I'm listening. Start anywhere.",
+    ];
+  }
+
+  function handleOrbClick() {
+    if (activeKey !== "anuan") return;
+    if (ttsStatus === "playing" || ttsStatus === "loading") return;
+
+    const phrases = getWakePhrases();
+    const phrase = phrases[Math.floor(Math.random() * phrases.length)];
+
+    if (wakeIntervalRef.current) { clearInterval(wakeIntervalRef.current); wakeIntervalRef.current = null; }
+    if (wakeTimeoutRef.current)  { clearTimeout(wakeTimeoutRef.current);   wakeTimeoutRef.current  = null; }
+
+    setWakeText(phrase);
+    setWakeTyped("");
+    setWakeClicked(true);
+    setTimeout(() => setWakeClicked(false), 600);
+
+    let idx = 0;
+    wakeIntervalRef.current = setInterval(() => {
+      idx++;
+      setWakeTyped(phrase.slice(0, idx));
+      if (idx >= phrase.length) {
+        clearInterval(wakeIntervalRef.current!);
+        wakeIntervalRef.current = null;
+        wakeTimeoutRef.current = setTimeout(() => {
+          setWakeText(null);
+          setWakeTyped("");
+        }, 2500);
+      }
+    }, 45);
+
+    // Fire TTS — silent on failure, wake is best-effort
+    void playTtsSafe(`wake_${Date.now()}`, phrase, "anuan");
+  }
   const isListening   = voiceStatus === "recording"; // for CompanionOrb / AudioWaveform
 
   const [atmosphereOpen,   setAtmosphereOpen]   = useState(false);
@@ -1055,7 +1111,28 @@ export default function DreamSpace() {
       <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5"
         style={{ zIndex: 10, position: "relative" }}>
 
-        <CompanionOrb size="lg" color={charConfig.companionColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
+        {/* CompanionOrb — clickable for Anuan wake interaction */}
+        <motion.div
+          className="relative select-none"
+          style={{ cursor: activeKey === "anuan" ? "pointer" : "default" }}
+          animate={wakeClicked ? { scale: [1, 1.07, 1.02] } : { scale: 1 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          onClick={handleOrbClick}
+        >
+          <CompanionOrb size="lg" color={charConfig.companionColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
+          <AnimatePresence>
+            {wakeClicked && activeKey === "anuan" && (
+              <motion.div
+                className="absolute rounded-full pointer-events-none"
+                style={{ inset: "-14px", border: "1.5px solid rgba(242,168,75,0.55)" }}
+                initial={{ opacity: 0.8, scale: 0.88 }}
+                animate={{ opacity: 0, scale: 1.55 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.65, ease: "easeOut" }}
+              />
+            )}
+          </AnimatePresence>
+        </motion.div>
 
         {/* Name + subtitle — re-animate when character changes */}
         <AnimatePresence mode="wait">
@@ -1088,9 +1165,44 @@ export default function DreamSpace() {
 
         <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charConfig.companionColor} />
 
+        {/* ── ANUAN WAKE SUBTITLE ── */}
+        <AnimatePresence>
+          {wakeText !== null && activeKey === "anuan" && (
+            <motion.div
+              key="wake-subtitle"
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.96 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
+              className="w-full max-w-md rounded-2xl px-4 py-3"
+              style={{
+                background: "rgba(6, 6, 14, 0.82)",
+                backdropFilter: "blur(22px)",
+                WebkitBackdropFilter: "blur(22px)",
+                border: "1px solid rgba(242,168,75,0.22)",
+                boxShadow: "0 0 28px rgba(242,168,75,0.08), inset 0 1px 0 rgba(255,255,255,0.04)",
+              }}
+            >
+              <p className="text-[9px] tracking-[0.28em] mb-1.5 uppercase"
+                style={{ color: "rgba(242,168,75,0.50)" }}>
+                Anuan
+              </p>
+              <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.65)" }}>
+                "{wakeTyped}
+                <motion.span
+                  className="inline-block w-[2px] h-[1em] ml-[1px] align-middle rounded-full"
+                  style={{ backgroundColor: "#F2A84B" }}
+                  animate={{ opacity: [0.8, 0, 0.8] }}
+                  transition={{ duration: 0.75, repeat: Infinity }}
+                />"
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ── TTS SUBTITLE PANEL ── */}
         <AnimatePresence>
-          {(ttsStatus === "playing" || ttsStatus === "loading") && (
+          {(ttsStatus === "playing" || ttsStatus === "loading") && wakeText === null && (
             <motion.div
               key="subtitle"
               initial={{ opacity: 0, y: 8, scale: 0.97 }}
