@@ -676,15 +676,22 @@ export default function DreamSpace() {
     const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
     const summary = lastAiMsg?.content ?? firstUser;
 
-    // Strip audio blobs; keep type/duration/transcription for voice card display.
-    // Strip thumbnailUrl from storage (only needed as in-memory fallback handle).
+    // coverImage: 600 px cardCover from first user image (highest quality, for
+    // gallery / starmap / corridor display).
+    const coverImage = messages.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
+
+    // Strip audio blobs (keep type/duration/transcription for voice card).
+    // For image messages swap imageUrl → thumbnailUrl (240 px) so that only a
+    // small thumbnail is persisted per message; the 600 px version lives only
+    // in coverImage above.
     const messagesForStorage = messages.map(m => {
-      const { audioUrl: _a, thumbnailUrl: _t, ...rest } = m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
+      const { audioUrl: _a, thumbnailUrl: thumb, ...rest } =
+        m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
+      if (rest.type === "image" && thumb) {
+        return { ...rest, imageUrl: thumb };   // 240 px thumbnail in messages
+      }
       return rest;
     });
-
-    // coverImage: first user image message (already compressed to 600 px at upload).
-    const coverImage = messagesForStorage.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
 
     const dream = {
       id: genId(),
@@ -701,36 +708,33 @@ export default function DreamSpace() {
     let existing: unknown[] = [];
     try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
 
-    // ── Tier 1: Full save (images already 600 px JPEG from upload) ────────────
+    // ── Tier 1: thumbnails in messages + 600 px coverImage ────────────────────
     try {
       localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream]));
       setLocation("/archive");
       return;
     } catch { /* quota exceeded — fall through */ }
 
-    // ── Tier 2: Replace imageUrls with thumbnails (240 px) ───────────────────
-    const tier2Messages = messages.map(m => {
-      const thumb = m.thumbnailUrl ?? m.imageUrl;
-      const { audioUrl: _a, thumbnailUrl: _t, ...rest } = m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
-      return m.type === "image" ? { ...rest, imageUrl: thumb } : rest;
-    });
-    const dream2 = { ...dream, messages: tier2Messages,
-      coverImage: tier2Messages.find(m => m.role === "user" && (m as ChatMessage).imageUrl)?.imageUrl as string | undefined };
+    // ── Tier 2: drop coverImage (messages already have tiny thumbnails) ───────
     try {
-      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream2]));
+      localStorage.setItem(DREAMS_STORAGE_KEY,
+        JSON.stringify([...existing, { ...dream, coverImage: undefined }]));
       toast({ title: "图片较大，已为你保存压缩版梦境。" });
       setLocation("/archive");
       return;
     } catch { /* still failing — fall through */ }
 
-    // ── Tier 3: Strip all images from messages, keep coverImage only ─────────
-    const tier3Messages = messagesForStorage.map(m =>
-      m.type === "image" ? { ...m, imageUrl: undefined } : m
-    );
-    const dream3 = { ...dream, messages: tier3Messages };
+    // ── Tier 3: strip all images; text + audio transcriptions only ────────────
+    const dream3 = {
+      ...dream,
+      coverImage: undefined,
+      messages: messagesForStorage.map(m =>
+        m.type === "image" ? { ...m, imageUrl: undefined } : m
+      ),
+    };
     try {
       localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream3]));
-      toast({ title: "图片较大，已为你保存梦境文字与封面。" });
+      toast({ title: "图片较大，已为你保存梦境文字版本。" });
       setLocation("/archive");
     } catch {
       toast({ title: "保存失败，请清除部分旧梦境后重试。", variant: "destructive" });
