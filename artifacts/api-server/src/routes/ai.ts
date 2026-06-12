@@ -59,6 +59,59 @@ const MOCK_IMAGE = {
 
 function rnd<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
+// ─── ElevenLabs TTS config ────────────────────────────────────────────────────
+
+const CHARACTER_VOICES: Record<string, {
+  voiceId: string; modelId: string;
+  stability: number; similarityBoost: number; style: number; useSpeakerBoost: boolean;
+}> = {
+  anuan: {
+    voiceId: "9BWtsMINqrJLrRacOk9x", // Aria — warm, natural female
+    modelId: "eleven_multilingual_v2",
+    stability: 0.45, similarityBoost: 0.75, style: 0.35, useSpeakerBoost: true,
+  },
+  daoshen: {
+    voiceId: "9BWtsMINqrJLrRacOk9x",
+    modelId: "eleven_multilingual_v2",
+    stability: 0.55, similarityBoost: 0.70, style: 0.20, useSpeakerBoost: true,
+  },
+  muge: {
+    voiceId: "9BWtsMINqrJLrRacOk9x",
+    modelId: "eleven_multilingual_v2",
+    stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true,
+  },
+};
+
+async function elevenLabsTts(text: string, character: string, apiKey: string): Promise<Buffer> {
+  const cfg = CHARACTER_VOICES[character] ?? CHARACTER_VOICES.anuan;
+  const body = JSON.stringify({
+    text: text.slice(0, 500),
+    model_id: cfg.modelId,
+    voice_settings: {
+      stability: cfg.stability,
+      similarity_boost: cfg.similarityBoost,
+      style: cfg.style,
+      use_speaker_boost: cfg.useSpeakerBoost,
+    },
+  });
+  const headers = { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" };
+
+  const tryModel = async (modelId: string): Promise<ArrayBuffer> => {
+    const b = JSON.stringify({ ...JSON.parse(body), model_id: modelId });
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${cfg.voiceId}`, {
+      method: "POST", headers, body: b,
+    });
+    if (!r.ok) throw new Error(`ElevenLabs ${r.status}`);
+    return r.arrayBuffer();
+  };
+
+  try {
+    return Buffer.from(await tryModel(cfg.modelId));
+  } catch {
+    return Buffer.from(await tryModel("eleven_flash_v2_5"));
+  }
+}
+
 // ─── Real API helpers ─────────────────────────────────────────────────────────
 
 async function openaiChat(
@@ -282,6 +335,26 @@ const DREAM_CHAT_MOCK: Record<string, string[]> = {
     "嗯……你说完我心里有点堵。这个梦好像带着一些你平时没说出口的东西。不用讲完整，你现在感觉怎么样？",
   ],
 };
+
+router.post("/ai/tts", async (req, res): Promise<void> => {
+  const { text, character } = req.body as { text?: unknown; character?: unknown };
+  if (typeof text !== "string" || !text.trim()) {
+    res.status(400).json({ error: "text required" }); return;
+  }
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "TTS not configured" }); return;
+  }
+  try {
+    const buf = await elevenLabsTts(text.trim(), typeof character === "string" ? character : "anuan", apiKey);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(buf);
+  } catch (err) {
+    req.log.error({ err }, "TTS failed");
+    res.status(502).json({ error: "TTS service unavailable" });
+  }
+});
 
 router.post("/ai/dream-chat", async (req, res): Promise<void> => {
   const parsed = DreamChatBody.safeParse(req.body);

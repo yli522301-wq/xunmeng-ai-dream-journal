@@ -4,7 +4,7 @@ import {
   useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen } from "lucide-react";
+import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
@@ -251,6 +251,20 @@ export default function DreamSpace() {
   const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const [bgMusicVolume,  setBgMusicVolume]  = useState(0.3);
   const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
+
+  // ── ElevenLabs TTS state ──────────────────────────────────────────────────
+  const [ttsEnabled, setTtsEnabledState] = useState(() => {
+    try { return localStorage.getItem("xm-tts-enabled") !== "false"; } catch { return true; }
+  });
+  const [ttsVolume, setTtsVolumeState] = useState(() => {
+    try { return Number(localStorage.getItem("xm-tts-volume") ?? "0.7"); } catch { return 0.7; }
+  });
+  const [ttsStatus, setTtsStatus] = useState<"idle" | "loading" | "playing">("idle");
+  const [ttsVoiceOpen, setTtsVoiceOpen] = useState(false);
+  const ttsEnabledRef  = useRef(true);
+  const ttsVolumeRef   = useRef(0.7);
+  const ttsAudioRef    = useRef<HTMLAudioElement | null>(null);
+  const ttsCacheRef    = useRef<Map<string, string>>(new Map());
   const bgMusicInputRef     = useRef<HTMLInputElement>(null);
   const mediaRecorderRef    = useRef<MediaRecorder | null>(null);
   const audioChunksRef      = useRef<Blob[]>([]);
@@ -438,6 +452,32 @@ export default function DreamSpace() {
     // Intentionally do NOT clear messages — shared thread
   };
 
+  // ── Keep TTS refs in sync with state ─────────────────────────────────────
+  useEffect(() => { ttsEnabledRef.current = ttsEnabled; }, [ttsEnabled]);
+  useEffect(() => {
+    ttsVolumeRef.current = ttsVolume;
+    if (ttsAudioRef.current) ttsAudioRef.current.volume = ttsVolume;
+  }, [ttsVolume]);
+
+  const setTtsEnabled = (v: boolean) => {
+    setTtsEnabledState(v);
+    ttsEnabledRef.current = v;
+    try { localStorage.setItem("xm-tts-enabled", String(v)); } catch { /* ignore */ }
+    if (!v) {
+      ttsAudioRef.current?.pause();
+      ttsAudioRef.current = null;
+      setTtsStatus("idle");
+      // Restore bg music if ducked
+      if (bgAudioRef.current) bgAudioRef.current.volume = bgMusicVolume;
+    }
+  };
+  const setTtsVolume = (v: number) => {
+    setTtsVolumeState(v);
+    ttsVolumeRef.current = v;
+    try { localStorage.setItem("xm-tts-volume", String(v)); } catch { /* ignore */ }
+    if (ttsAudioRef.current) ttsAudioRef.current.volume = v;
+  };
+
   // ── TTS ──────────────────────────────────────────────────────────────────
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
@@ -445,6 +485,71 @@ export default function DreamSpace() {
     u.lang = activeChar?.language === "en" ? "en-US" : "zh-CN";
     u.rate = 0.88;
     window.speechSynthesis.speak(u);
+  };
+
+  // ── ElevenLabs TTS playback (anuan only for now) ─────────────────────────
+  const playTtsSafe = async (msgId: string, text: string, charKey: CharKey) => {
+    if (charKey !== "anuan") {
+      speak(text);
+      return;
+    }
+    if (!ttsEnabledRef.current) return;
+
+    // Cancel any ongoing TTS
+    window.speechSynthesis.cancel();
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current = null;
+    }
+
+    // Check session cache
+    let audioUrl = ttsCacheRef.current.get(msgId);
+
+    if (!audioUrl) {
+      setTtsStatus("loading");
+      try {
+        const resp = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text.slice(0, 500), character: charKey }),
+        });
+        if (!resp.ok) throw new Error(`TTS ${resp.status}`);
+        const blob = await resp.blob();
+        audioUrl = URL.createObjectURL(blob);
+        ttsCacheRef.current.set(msgId, audioUrl);
+      } catch {
+        toast({ title: "语音暂时没有接通，已先显示文字。" });
+        setTtsStatus("idle");
+        return;
+      }
+    }
+
+    // Capture current bg volume to restore later
+    const originalBgVol = bgAudioRef.current?.volume ?? bgMusicVolume;
+
+    const audio = new Audio(audioUrl);
+    audio.volume = ttsVolumeRef.current;
+    ttsAudioRef.current = audio;
+
+    // Duck background music
+    if (bgAudioRef.current && bgMusicPlaying) {
+      bgAudioRef.current.volume = originalBgVol * 0.3;
+    }
+
+    setTtsStatus("playing");
+
+    const restoreBg = () => {
+      if (bgAudioRef.current && bgMusicPlaying) bgAudioRef.current.volume = originalBgVol;
+      ttsAudioRef.current = null;
+      setTtsStatus("idle");
+    };
+
+    audio.onended = restoreBg;
+    audio.onerror = restoreBg;
+
+    audio.play().catch(() => {
+      restoreBg();
+    });
   };
 
   // ── Get DB character system prompt by key ─────────────────────────────────
@@ -532,7 +637,7 @@ export default function DreamSpace() {
       const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
       setMessages(prev => [...prev, reply]);
       startTypewriter(reply.id, replyContent);
-      speak(replyContent);
+      void playTtsSafe(reply.id, replyContent, activeKey);
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -1105,6 +1210,110 @@ export default function DreamSpace() {
             );
           })()}
 
+          {/* ── AI Voice button + panel ── */}
+          <div className="relative flex-shrink-0" style={{ width: 40 }}>
+            <AnimatePresence>
+              {ttsVoiceOpen && (
+                <motion.div
+                  className="absolute bottom-[calc(100%+10px)] right-0 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
+                  style={{
+                    background: "rgba(8,8,18,0.93)",
+                    backdropFilter: "blur(24px)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    boxShadow: "0 4px 32px rgba(0,0,0,0.55)",
+                    zIndex: 50,
+                  }}
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.97 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  {/* Toggle row */}
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[11px] tracking-wide" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      阿暖语音
+                    </span>
+                    <button
+                      onClick={() => setTtsEnabled(!ttsEnabled)}
+                      className="relative w-9 h-5 rounded-full transition-all flex-shrink-0"
+                      style={{
+                        background: ttsEnabled ? `hsl(${hsl} / 0.55)` : "rgba(255,255,255,0.10)",
+                      }}
+                    >
+                      <motion.span
+                        className="absolute top-[3px] w-[14px] h-[14px] rounded-full"
+                        style={{ background: ttsEnabled ? "#fff" : "rgba(255,255,255,0.40)" }}
+                        animate={{ left: ttsEnabled ? "calc(100% - 17px)" : "3px" }}
+                        transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Volume slider */}
+                  {ttsEnabled && (
+                    <div className="flex items-center gap-2 px-1">
+                      <Volume2 size={11} style={{ color: "rgba(255,255,255,0.22)", flexShrink: 0 }} />
+                      <input
+                        type="range" min={0} max={1} step={0.01}
+                        value={ttsVolume}
+                        onChange={e => setTtsVolume(Number(e.target.value))}
+                        className="flex-1 h-[3px] rounded-full cursor-pointer appearance-none"
+                        style={{ accentColor: `hsl(${hsl})` }}
+                      />
+                      <span className="text-[10px] w-7 text-right tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>
+                        {Math.round(ttsVolume * 100)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Status hint */}
+                  <p className="text-[10px] px-1 leading-relaxed" style={{ color: "rgba(255,255,255,0.18)" }}>
+                    {ttsEnabled
+                      ? "阿暖回复时会用语音朗读"
+                      : "已关闭，只显示文字"}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button
+              onClick={() => setTtsVoiceOpen(s => !s)}
+              className="flex flex-col items-center gap-1 transition-all"
+              style={{
+                color: ttsVoiceOpen
+                  ? `hsl(${hsl} / 0.75)`
+                  : ttsStatus === "playing"
+                  ? `hsl(${hsl} / 0.65)`
+                  : ttsEnabled
+                  ? "rgba(255,255,255,0.28)"
+                  : "rgba(255,255,255,0.12)",
+                width: 40,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
+              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+            >
+              {ttsEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              {ttsStatus === "playing" && (
+                <div className="flex gap-[2px] items-end h-3">
+                  {[0, 1, 2].map(i => (
+                    <motion.div key={i} className="w-[2px] rounded-full"
+                      style={{ background: `hsl(${hsl} / 0.60)` }}
+                      animate={{ height: ["3px", "9px", "3px"] }}
+                      transition={{ duration: 0.55 + i * 0.15, repeat: Infinity, ease: "easeInOut", delay: i * 0.09 }}
+                    />
+                  ))}
+                </div>
+              )}
+              {ttsStatus === "loading" && (
+                <motion.span className="w-1 h-1 rounded-full"
+                  style={{ backgroundColor: `hsl(${hsl} / 0.5)` }}
+                  animate={{ opacity: [0.3, 0.8, 0.3] }}
+                  transition={{ duration: 0.7, repeat: Infinity }}
+                />
+              )}
+            </button>
+          </div>
+
           {/* ── Music button + panel ── */}
           <div className="relative flex-shrink-0" style={{ width: 40 }}>
             <AnimatePresence>
@@ -1205,7 +1414,18 @@ export default function DreamSpace() {
         </div>
 
         <AnimatePresence mode="wait">
-          {voiceStatus !== "idle" && (
+          {ttsStatus !== "idle" && voiceStatus === "idle" ? (
+            <motion.p
+              key={`tts-${ttsStatus}`}
+              initial={{ opacity: 0, y: 4 }} exit={{ opacity: 0, y: -2 }}
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ opacity: { duration: 1.4, repeat: Infinity }, y: { duration: 0.2 } }}
+              className="text-[11px] tracking-[0.2em] -mt-2"
+              style={{ color: "rgba(255,255,255,0.32)" }}>
+              {ttsStatus === "loading"  && "阿暖正在开口…"}
+              {ttsStatus === "playing"  && "阿暖正在说话…"}
+            </motion.p>
+          ) : voiceStatus !== "idle" ? (
             <motion.p
               key={voiceStatus}
               initial={{ opacity: 0, y: 4 }} exit={{ opacity: 0, y: -2 }}
@@ -1218,7 +1438,7 @@ export default function DreamSpace() {
               {voiceStatus === "processing"  && "正在整理你的梦…"}
               {voiceStatus === "error"       && "录音出现问题，请重试"}
             </motion.p>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 
