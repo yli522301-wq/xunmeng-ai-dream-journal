@@ -80,19 +80,58 @@ export default function DreamCorridor() {
     return () => clearTimeout(t);
   }, []);
 
-  const galleryItems = useMemo(() =>
-    allDreams.slice(0, 50).map(dream => {
-      // coverImage is the highest-quality source (600 px, set explicitly at save time).
-      // Fall back to the first imageUrl found in user messages (240 px thumbnail).
-      // Guard against undefined messages array to avoid crashes.
-      const image: string | null =
-        dream.coverImage ??
-        (dream.messages ?? []).find(m => m.role === "user" && m.imageUrl)?.imageUrl ??
-        null;
-      return { image, text: dream.title, dreamId: dream.id, charKey: dream.activeCharacter as string };
-    }),
-    [allDreams]
-  );
+  const galleryItems = useMemo(() => {
+    // Expand each dream into multiple gallery items:
+    //   • one card per image (deduplicated)
+    //   • one card per audio message (gradient cover, transcription as caption)
+    //   • one text/gradient card for dreams with no images and no audio
+    const items: Array<{ image: string | null; text: string; dreamId: string; charKey: string }> = [];
+
+    for (const dream of allDreams.slice(0, 30)) {
+      const msgs = dream.messages ?? [];
+
+      // Collect all image URLs from user messages in order
+      const imgUrls: string[] = [];
+      const audioCaptions: string[] = [];
+
+      for (const m of msgs) {
+        if (m.role !== "user") continue;
+        if (m.imageUrl) {
+          if (!imgUrls.includes(m.imageUrl)) imgUrls.push(m.imageUrl);
+        }
+        if (m.type === "audio") {
+          const caption = (m.transcription && m.transcription.slice(0, 24)) || dream.title;
+          audioCaptions.push(caption);
+        }
+      }
+
+      // Upgrade the first thumbnail to the 600 px cover when available
+      if (dream.coverImage) {
+        if (imgUrls.length > 0) {
+          imgUrls[0] = dream.coverImage;
+        } else {
+          imgUrls.push(dream.coverImage);
+        }
+      }
+
+      // Image cards — one per unique image
+      for (const img of imgUrls) {
+        items.push({ image: img, text: dream.title, dreamId: dream.id, charKey: dream.activeCharacter as string });
+      }
+
+      // Audio cards — gradient cover with transcription snippet
+      for (const caption of audioCaptions) {
+        items.push({ image: null, text: caption, dreamId: dream.id, charKey: dream.activeCharacter as string });
+      }
+
+      // Fallback: dream has no images and no audio → one text/gradient card
+      if (imgUrls.length === 0 && audioCaptions.length === 0) {
+        items.push({ image: null, text: dream.title, dreamId: dream.id, charKey: dream.activeCharacter as string });
+      }
+    }
+
+    return items;
+  }, [allDreams]);
 
   const hasDreams = allDreams.length > 0;
 
@@ -126,20 +165,20 @@ export default function DreamCorridor() {
             <motion.div
               key="gallery"
               className="w-full"
-              style={{ height: "460px" }}
+              style={{ height: "clamp(560px, 65vh, 680px)" }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2, duration: 0.7 }}
             >
               <CircularGallery
                 items={galleryItems}
-                bend={2.5}
-                borderRadius={0.050}
+                bend={2.8}
+                borderRadius={0.048}
                 scrollEase={0.038}
                 scrollSpeed={2}
-                cardWidth={2.60}
-                cardHeight={1.95}
-                cardStep={2.85}
+                cardWidth={2.80}
+                cardHeight={2.10}
+                cardStep={3.05}
                 cameraZ={5}
                 fov={40}
                 onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
