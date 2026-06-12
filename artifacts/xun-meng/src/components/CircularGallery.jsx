@@ -116,9 +116,9 @@ function _playSwipe() {
 }
 
 // ── Canvas texture builders ───────────────────────────────────────────────────
-// Portrait orientation (3:4) matches the taller card layout
-const CVS_W = 480;
-const CVS_H = 640;
+// Landscape orientation (4:3) — matches card aspect ratio
+const CVS_W = 640;
+const CVS_H = 480;
 
 const CHAR_PAL = {
   daoshen: { a: "#081830", b: "#030410", glow: "rgba(107,140,255,0.60)" },

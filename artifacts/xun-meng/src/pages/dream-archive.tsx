@@ -82,10 +82,13 @@ export default function DreamCorridor() {
 
   const galleryItems = useMemo(() =>
     allDreams.slice(0, 50).map(dream => {
-      const imgMsg = dream.messages.find(
-        m => m.role === "user" && (m.imageUrl || m.type === "image")
-      );
-      const image = imgMsg?.imageUrl ?? dream.coverImage ?? null;
+      // coverImage is the highest-quality source (600 px, set explicitly at save time).
+      // Fall back to the first imageUrl found in user messages (240 px thumbnail).
+      // Guard against undefined messages array to avoid crashes.
+      const image: string | null =
+        dream.coverImage ??
+        (dream.messages ?? []).find(m => m.role === "user" && m.imageUrl)?.imageUrl ??
+        null;
       return { image, text: dream.title, dreamId: dream.id, charKey: dream.activeCharacter as string };
     }),
     [allDreams]
@@ -111,8 +114,8 @@ export default function DreamCorridor() {
           style={{ background: "radial-gradient(circle, rgba(242,168,75,1), transparent)" }} />
       </div>
 
-      {/* ── Gallery — fills the ENTIRE viewport ── */}
-      <div className="absolute inset-0 z-0">
+      {/* ── Gallery — horizontal strip, vertically centred ── */}
+      <div className="absolute inset-0 z-0 flex flex-col items-center justify-center">
         <AnimatePresence mode="wait">
           {!intro && !hasDreams ? (
             <motion.div key="empty" className="w-full h-full"
@@ -120,20 +123,24 @@ export default function DreamCorridor() {
               <CorridorEmpty />
             </motion.div>
           ) : (
-            <motion.div key="gallery" className="w-full h-full"
+            <motion.div
+              key="gallery"
+              className="w-full"
+              style={{ height: "460px" }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.7 }}>
+              transition={{ delay: 0.2, duration: 0.7 }}
+            >
               <CircularGallery
                 items={galleryItems}
-                bend={2.6}
-                borderRadius={0.045}
+                bend={2.5}
+                borderRadius={0.050}
                 scrollEase={0.038}
                 scrollSpeed={2}
-                cardWidth={2.10}
-                cardHeight={2.80}
-                cardStep={2.45}
-                cameraZ={4}
+                cardWidth={2.60}
+                cardHeight={1.95}
+                cardStep={2.85}
+                cameraZ={5}
                 fov={40}
                 onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
               />
