@@ -130,10 +130,21 @@ export default function DreamCorridor() {
       }
     }
 
+    // DEV: inject 5 gradient test cards when localStorage has no dreams
+    if (items.length === 0) {
+      return [
+        { image: null, text: "潮汐与月亮", dreamId: "t1", charKey: "daoshen" },
+        { image: null, text: "消失的城市", dreamId: "t2", charKey: "muge" },
+        { image: null, text: "玻璃阶梯", dreamId: "t3", charKey: "anuan" },
+        { image: null, text: "白色森林", dreamId: "t4", charKey: "daoshen" },
+        { image: null, text: "镜中影", dreamId: "t5", charKey: "muge" },
+      ];
+    }
     return items;
   }, [allDreams]);
 
-  const hasDreams = allDreams.length > 0;
+  // Use galleryItems.length so test-injected items also trigger gallery display
+  const hasDreams = galleryItems.length > 0;
 
   return (
     <motion.div
@@ -172,13 +183,13 @@ export default function DreamCorridor() {
             >
               <CircularGallery
                 items={galleryItems}
-                bend={2.8}
+                bend={0.30}
                 borderRadius={0.048}
                 scrollEase={0.038}
                 scrollSpeed={2}
-                cardWidth={2.80}
-                cardHeight={2.10}
-                cardStep={3.05}
+                cardWidth={1.60}
+                cardHeight={2.00}
+                cardStep={1.75}
                 cameraZ={5}
                 fov={40}
                 onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
@@ -219,7 +230,7 @@ export default function DreamCorridor() {
           </h1>
           <p className="mt-0.5 text-[10px] tracking-[0.22em]"
             style={{ color: "rgba(255,255,255,0.20)" }}>
-            {hasDreams ? `${allDreams.length} 段梦境` : "滑动浏览梦境碎片"}
+            {allDreams.length > 0 ? `${galleryItems.length} 段梦境碎片` : "滑动浏览梦境碎片"}
           </p>
         </motion.div>
 

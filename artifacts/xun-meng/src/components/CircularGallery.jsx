@@ -116,9 +116,9 @@ function _playSwipe() {
 }
 
 // ── Canvas texture builders ───────────────────────────────────────────────────
-// Landscape orientation (4:3) — matches card aspect ratio
-const CVS_W = 640;
-const CVS_H = 480;
+// Portrait orientation (4:5) — matches card aspect ratio 1.6 : 2.0
+const CVS_W = 480;
+const CVS_H = 600;
 
 const CHAR_PAL = {
   daoshen: { a: "#081830", b: "#030410", glow: "rgba(107,140,255,0.60)" },
@@ -254,9 +254,16 @@ export default function CircularGallery({
 
       const { Renderer, Camera, Transform, Program, Mesh, Plane, Texture } = ogl;
 
-      // Renderer
-      const renderer = new Renderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
-      const gl = renderer.gl;
+      // Renderer — guard against environments without WebGL (e.g. sandboxed iframes)
+      let renderer, gl;
+      try {
+        renderer = new Renderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
+        gl = renderer.gl;
+      } catch (e) {
+        console.warn("[CircularGallery] WebGL unavailable:", e);
+        return;
+      }
+      if (!gl) { console.warn("[CircularGallery] gl context is null"); return; }
       gl.clearColor(0, 0, 0, 0);
       const canvas = gl.canvas;
       canvas.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;cursor:grab;";
