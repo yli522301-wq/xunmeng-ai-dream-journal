@@ -1290,23 +1290,10 @@ export default function DreamSpace() {
             ) : (
               <motion.div
                 key={`welcome-${activeChar.id}`}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
-                className="w-full flex flex-col items-center gap-3"
-              >
-                <div className="w-full rounded-2xl px-5 py-4 text-center"
-                  style={{
-                    background: `linear-gradient(140deg, hsl(${hsl} / 0.04) 0%, transparent 100%)`,
-                    border: `1px solid hsl(${hsl} / 0.08)`,
-                  }}>
-                  <p className="text-[13px] leading-[1.85] italic" style={{ color: "rgba(255,255,255,0.38)" }}>
-                    {charConfig.firstMessage}
-                  </p>
-                </div>
-                <p className="text-[10px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.12)" }}>
-                  {charConfig.hint}
-                </p>
-              </motion.div>
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="w-full"
+              />
             )}
           </AnimatePresence>
         </div>
@@ -1355,6 +1342,51 @@ export default function DreamSpace() {
           )}
         </AnimatePresence>
 
+        {/* ── Main Mic Button ── */}
+        {(() => {
+          const isRecording   = voiceStatus === "recording";
+          const isRequesting  = voiceStatus === "requesting";
+          const isProcessing  = voiceStatus === "processing";
+          const bgOpacity     = isRecording ? 0.82 : isRequesting ? 0.30 : isProcessing ? 0.08 : 0.13;
+          const glowStyle     = isRecording
+            ? `0 0 0 8px hsl(${hsl} / 0.10), 0 0 36px hsl(${hsl} / 0.30)`
+            : isRequesting
+            ? `0 0 0 4px hsl(${hsl} / 0.08), 0 0 18px hsl(${hsl} / 0.15)`
+            : `0 0 0 1px hsl(${hsl} / 0.18)`;
+          return (
+            <motion.button
+              onClick={toggleMic}
+              disabled={isProcessing}
+              className="relative flex items-center justify-center rounded-full"
+              style={{
+                width: 72, height: 72,
+                backgroundColor: `hsl(${hsl} / ${bgOpacity})`,
+                boxShadow: glowStyle,
+                color: isRecording ? "#fff" : `hsl(${hsl} / ${isProcessing ? 0.35 : 1})`,
+                cursor: isProcessing ? "default" : "pointer",
+              }}
+              animate={isRecording ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+              transition={isRecording ? { duration: 1.3, repeat: Infinity, ease: "easeInOut" } : {}}
+              whileHover={!isProcessing ? { scale: 1.06 } : {}}
+              whileTap={!isProcessing ? { scale: 0.93 } : {}}
+            >
+              {isRecording
+                ? <Square size={22} className="fill-current" />
+                : isProcessing
+                ? <motion.div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: `hsl(${hsl})` }}
+                    animate={{ opacity: [0.3, 0.8, 0.3] }} transition={{ duration: 0.9, repeat: Infinity }} />
+                : <Mic size={25} />}
+              {isRecording && (
+                <motion.div className="absolute inset-0 rounded-full pointer-events-none"
+                  style={{ border: `1px solid hsl(${hsl} / 0.4)` }}
+                  animate={{ scale: [1, 1.55], opacity: [0.5, 0] }}
+                  transition={{ duration: 1.3, repeat: Infinity, ease: "easeOut" }}
+                />
+              )}
+            </motion.button>
+          );
+        })()}
+
         {/* Text input + image */}
         <div className="w-full flex items-center gap-3">
           <input
@@ -1379,73 +1411,33 @@ export default function DreamSpace() {
           </button>
         </div>
 
-        {/* Mic row */}
-        <div className="flex items-center justify-between w-full">
+        {/* ── Auxiliary toolbar ── */}
+        <div className="flex items-center justify-center gap-4 w-full">
+          {/* Atmosphere */}
           <button onClick={() => setAtmosphereOpen(true)}
-            className="flex flex-col items-center gap-1 transition-colors"
-            style={{ color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
-            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}>
-            <Sparkles size={17} />
-            {hasAtmosphere && (
-              <motion.span className="w-1 h-1 rounded-full"
-                style={{ backgroundColor: `hsl(${hsl})` }}
-                animate={{ opacity: [0.4, 1, 0.4] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-            )}
+            className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
+            style={{
+              color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)",
+              background: "rgba(255,255,255,0.04)",
+              border: hasAtmosphere ? `1px solid hsl(${hsl} / 0.18)` : "1px solid rgba(255,255,255,0.06)",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+              e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+              e.currentTarget.style.borderColor = hasAtmosphere ? `hsl(${hsl} / 0.18)` : "rgba(255,255,255,0.06)";
+            }}>
+            <Sparkles size={15} />
           </button>
 
-          {(() => {
-            const isRecording   = voiceStatus === "recording";
-            const isRequesting  = voiceStatus === "requesting";
-            const isProcessing  = voiceStatus === "processing";
-            const bgOpacity     = isRecording ? 0.82 : isRequesting ? 0.30 : isProcessing ? 0.08 : 0.13;
-            const glowStyle     = isRecording
-              ? `0 0 0 8px hsl(${hsl} / 0.10), 0 0 36px hsl(${hsl} / 0.30)`
-              : isRequesting
-              ? `0 0 0 4px hsl(${hsl} / 0.08), 0 0 18px hsl(${hsl} / 0.15)`
-              : `0 0 0 1px hsl(${hsl} / 0.18)`;
-            return (
-              <motion.button
-                onClick={toggleMic}
-                disabled={isProcessing}
-                className="relative flex items-center justify-center rounded-full flex-shrink-0"
-                style={{
-                  width: 72, height: 72,
-                  backgroundColor: `hsl(${hsl} / ${bgOpacity})`,
-                  boxShadow: glowStyle,
-                  color: isRecording ? "#fff" : `hsl(${hsl} / ${isProcessing ? 0.35 : 1})`,
-                  cursor: isProcessing ? "default" : "pointer",
-                }}
-                animate={isRecording ? { scale: [1, 1.05, 1] } : { scale: 1 }}
-                transition={isRecording ? { duration: 1.3, repeat: Infinity, ease: "easeInOut" } : {}}
-                whileHover={!isProcessing ? { scale: 1.06 } : {}}
-                whileTap={!isProcessing ? { scale: 0.93 } : {}}
-              >
-                {isRecording
-                  ? <Square size={22} className="fill-current" />
-                  : isProcessing
-                  ? <motion.div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: `hsl(${hsl})` }}
-                      animate={{ opacity: [0.3, 0.8, 0.3] }} transition={{ duration: 0.9, repeat: Infinity }} />
-                  : <Mic size={25} />}
-                {isRecording && (
-                  <motion.div className="absolute inset-0 rounded-full pointer-events-none"
-                    style={{ border: `1px solid hsl(${hsl} / 0.4)` }}
-                    animate={{ scale: [1, 1.55], opacity: [0.5, 0] }}
-                    transition={{ duration: 1.3, repeat: Infinity, ease: "easeOut" }}
-                  />
-                )}
-              </motion.button>
-            );
-          })()}
-
-          {/* ── AI Voice button + panel ── */}
-          <div className="relative flex-shrink-0" style={{ width: 40 }}>
+          {/* AI Voice */}
+          <div className="relative">
             <AnimatePresence>
               {ttsVoiceOpen && (
                 <motion.div
-                  className="absolute bottom-[calc(100%+10px)] right-0 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
+                  className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
                   style={{
                     background: "rgba(8,8,18,0.93)",
                     backdropFilter: "blur(24px)",
@@ -1508,7 +1500,7 @@ export default function DreamSpace() {
 
             <button
               onClick={() => setTtsVoiceOpen(s => !s)}
-              className="flex flex-col items-center gap-1 transition-all"
+              className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
               style={{
                 color: ttsVoiceOpen
                   ? `hsl(${hsl} / 0.75)`
@@ -1517,39 +1509,32 @@ export default function DreamSpace() {
                   : ttsEnabled
                   ? "rgba(255,255,255,0.28)"
                   : "rgba(255,255,255,0.12)",
-                width: 40,
+                background: "rgba(255,255,255,0.04)",
+                border: ttsVoiceOpen || ttsStatus === "playing" || ttsEnabled
+                  ? `1px solid hsl(${hsl} / 0.18)`
+                  : "1px solid rgba(255,255,255,0.06)",
               }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.borderColor = (ttsVoiceOpen || ttsStatus === "playing" || ttsEnabled)
+                  ? `hsl(${hsl} / 0.18)`
+                  : "rgba(255,255,255,0.06)";
+              }}
             >
-              {ttsEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
-              {ttsStatus === "playing" && (
-                <div className="flex gap-[2px] items-end h-3">
-                  {[0, 1, 2].map(i => (
-                    <motion.div key={i} className="w-[2px] rounded-full"
-                      style={{ background: `hsl(${hsl} / 0.60)` }}
-                      animate={{ height: ["3px", "9px", "3px"] }}
-                      transition={{ duration: 0.55 + i * 0.15, repeat: Infinity, ease: "easeInOut", delay: i * 0.09 }}
-                    />
-                  ))}
-                </div>
-              )}
-              {ttsStatus === "loading" && (
-                <motion.span className="w-1 h-1 rounded-full"
-                  style={{ backgroundColor: `hsl(${hsl} / 0.5)` }}
-                  animate={{ opacity: [0.3, 0.8, 0.3] }}
-                  transition={{ duration: 0.7, repeat: Infinity }}
-                />
-              )}
+              {ttsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
             </button>
           </div>
 
-          {/* ── Music button + panel ── */}
-          <div className="relative flex-shrink-0" style={{ width: 40 }}>
+          {/* Music */}
+          <div className="relative">
             <AnimatePresence>
               {bgMusicOpen && (
                 <motion.div
-                  className="absolute bottom-[calc(100%+10px)] right-0 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
+                  className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
                   style={{
                     background: "rgba(8,8,18,0.93)",
                     backdropFilter: "blur(24px)",
@@ -1626,19 +1611,26 @@ export default function DreamSpace() {
 
             <button
               onClick={() => setBgMusicOpen(s => !s)}
-              className="flex flex-col items-center gap-1 transition-all"
-              style={{ color: bgMusicOpen || bgMusicPlaying ? `hsl(${hsl} / 0.75)` : "rgba(255,255,255,0.20)", width: 40 }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+              className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
+              style={{
+                color: bgMusicOpen || bgMusicPlaying ? `hsl(${hsl} / 0.75)` : "rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.04)",
+                border: bgMusicOpen || bgMusicPlaying
+                  ? `1px solid hsl(${hsl} / 0.18)`
+                  : "1px solid rgba(255,255,255,0.06)",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.borderColor = (bgMusicOpen || bgMusicPlaying)
+                  ? `hsl(${hsl} / 0.18)`
+                  : "rgba(255,255,255,0.06)";
+              }}
             >
-              <Music2 size={17} />
-              {bgMusicPlaying && (
-                <motion.span className="w-1 h-1 rounded-full"
-                  style={{ backgroundColor: `hsl(${hsl})` }}
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 1.8, repeat: Infinity }}
-                />
-              )}
+              <Music2 size={15} />
             </button>
           </div>
         </div>
