@@ -709,6 +709,7 @@ export default function DreamSpace() {
       if (bgAudioRef.current && bgMusicPlaying) bgAudioRef.current.volume = originalBgVol;
       ttsAudioRef.current = null;
       setTtsStatus("idle");
+      setSubtitleText("");
     };
 
     audio.onended = () => {
@@ -849,6 +850,12 @@ export default function DreamSpace() {
 
       const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
       setMessages(prev => [...prev, reply]);
+
+      // Prepare empty display area; full text goes to chat history only.
+      // Upper display area will be driven by TTS subtitle or typing fallback.
+      setTypingMsgId(reply.id);
+      setTypingContent("");
+      typingStartedRef.current = null;
 
       // Defer typewriter until TTS starts playing so text and voice are in sync.
       // Speed calibrated to audio duration. 3-second hard fallback in case TTS hangs.
@@ -1346,6 +1353,12 @@ export default function DreamSpace() {
                 className="text-[11px] tracking-[0.28em]" style={{ color: "rgba(255,255,255,0.20)" }}>
                 {thinkingMsg}
               </motion.div>
+            ) : (ttsStatus === "playing" || ttsStatus === "loading") ? (
+              <motion.div key="tts-active"
+                initial={{ opacity: 0 }} animate={{ opacity: 0 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="w-full"
+              />
             ) : displayReply ? (
               <motion.div key={`reply-${displayReply.id}`}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
