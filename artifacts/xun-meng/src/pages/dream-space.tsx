@@ -333,26 +333,50 @@ export default function DreamSpace() {
   // Derived alias used in render
   const voiceStatus   = voiceStatusS;
 
-  // ── Anuan wake-up interaction ─────────────────────────────────────────────
-  function getWakePhrases(): string[] {
+  // ── Wake-up interaction — works for all characters ───────────────────────
+  function getWakePhrases(char: string): string[] {
     const n = USER_NAME;
+    if (char === "anuan") {
+      return [
+        "Who's out there?",
+        `Hey ${n}… you there?`,
+        `How are you doing today, ${n}?`,
+        "Tell me, what kind of dream found you today?",
+        "Hey. I'm here. What did you see last night?",
+        "You look like you brought a strange dream with you.",
+        `Alright, ${n}. What are we looking at today?`,
+        "I'm listening. Start anywhere.",
+      ];
+    }
+    if (char === "muge") {
+      return [
+        "You came to show me something odd, didn't you?",
+        `Hey ${n}. What's the one thing you almost forgot?`,
+        "Tell me the part that didn't make sense.",
+        `So, ${n}... what did you really see?`,
+        "I'm here. Start with the strange detail.",
+        "You look like you walked out of something unfinished.",
+        `What did the dream refuse to explain, ${n}?`,
+        "The most interesting part is usually the one you skip. Let's go there.",
+      ];
+    }
+    // daoshen
     return [
-      "Who's out there?",
-      `Hey ${n}… you there?`,
-      `How are you doing today, ${n}?`,
-      "Tell me, what kind of dream found you today?",
-      "Hey. I'm here. What did you see last night?",
-      "You look like you brought a strange dream with you.",
-      `Alright, ${n}. What are we looking at today?`,
-      "I'm listening. Start anywhere.",
+      `今天怎么样，${n}？`,
+      `你是不是又做了一个没头没尾的梦？`,
+      `来吧，${n}，不用跟我云山雾罩，说实话。`,
+      `最近是不是趋进一个环，事很多，但迈不过去。`,
+      `今天窗外有没有烂太阳，没有的话就是纬度的问题。`,
+      `你的梦和你的现实比比，哪个更胖一点？`,
+      `我不急着求一个答案，就听听实话。`,
+      `${n}，还没睡醒吧？说说看。`,
     ];
   }
 
   function handleOrbClick() {
-    if (activeKey !== "anuan") return;
     if (ttsStatus === "playing" || ttsStatus === "loading") return;
 
-    const phrases = getWakePhrases();
+    const phrases = getWakePhrases(activeKey);
     const phrase = phrases[Math.floor(Math.random() * phrases.length)];
 
     if (wakeIntervalRef.current) { clearInterval(wakeIntervalRef.current); wakeIntervalRef.current = null; }
@@ -378,7 +402,7 @@ export default function DreamSpace() {
     }, 45);
 
     // Fire TTS — silent on failure, wake is best-effort
-    void playTtsSafe(`wake_${Date.now()}`, phrase, "anuan");
+    void playTtsSafe(`wake_${Date.now()}`, phrase, activeKey);
   }
   const isListening   = voiceStatus === "recording"; // for CompanionOrb / AudioWaveform
 
@@ -572,18 +596,13 @@ export default function DreamSpace() {
     window.speechSynthesis.speak(u);
   };
 
-  // ── ElevenLabs TTS playback (anuan only for now) ─────────────────────────
+  // ── ElevenLabs TTS playback (all characters) ─────────────────────────
   const playTtsSafe = async (
     msgId: string,
     text: string,
     charKey: CharKey,
     onPlayStart?: (audioDuration: number) => void,
   ) => {
-    if (charKey !== "anuan") {
-      speak(text);
-      onPlayStart?.(text.length * 0.18); // rough estimate for browser TTS
-      return;
-    }
     if (!ttsEnabledRef.current) {
       onPlayStart?.(5);
       return;
@@ -776,23 +795,18 @@ export default function DreamSpace() {
       const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
       setMessages(prev => [...prev, reply]);
 
-      if (activeKey === "anuan") {
-        // Anuan: defer typewriter until TTS starts playing so text and voice are in sync.
-        // Speed calibrated to audio duration. 3-second hard fallback in case TTS hangs.
-        const fallbackTimer = setTimeout(() => {
-          if (typingStartedRef.current !== reply.id) {
-            startTypewriter(reply.id, replyContent);
-          }
-        }, 3000);
-        void playTtsSafe(reply.id, replyContent, activeKey, (audioDuration: number) => {
-          clearTimeout(fallbackTimer);
-          const msPerChar = Math.max(30, Math.min(110, (audioDuration * 1000) / replyContent.length));
-          startTypewriter(reply.id, replyContent, msPerChar);
-        });
-      } else {
-        startTypewriter(reply.id, replyContent);
-        void playTtsSafe(reply.id, replyContent, activeKey);
-      }
+      // Defer typewriter until TTS starts playing so text and voice are in sync.
+      // Speed calibrated to audio duration. 3-second hard fallback in case TTS hangs.
+      const fallbackTimer = setTimeout(() => {
+        if (typingStartedRef.current !== reply.id) {
+          startTypewriter(reply.id, replyContent);
+        }
+      }, 3000);
+      void playTtsSafe(reply.id, replyContent, activeKey, (audioDuration: number) => {
+        clearTimeout(fallbackTimer);
+        const msPerChar = Math.max(30, Math.min(110, (audioDuration * 1000) / replyContent.length));
+        startTypewriter(reply.id, replyContent, msPerChar);
+      });
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
     } finally {
@@ -1128,20 +1142,20 @@ export default function DreamSpace() {
       <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5"
         style={{ zIndex: 10, position: "relative" }}>
 
-        {/* CompanionOrb — clickable for Anuan wake interaction */}
+        {/* CompanionOrb — clickable wake interaction for all characters */}
         <motion.div
           className="relative select-none"
-          style={{ cursor: activeKey === "anuan" ? "pointer" : "default" }}
+          style={{ cursor: "pointer" }}
           animate={wakeClicked ? { scale: [1, 1.07, 1.02] } : { scale: 1 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
           onClick={handleOrbClick}
         >
           <CompanionOrb size="lg" color={charConfig.companionColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
           <AnimatePresence>
-            {wakeClicked && activeKey === "anuan" && (
+            {wakeClicked && (
               <motion.div
                 className="absolute rounded-full pointer-events-none"
-                style={{ inset: "-14px", border: "1.5px solid rgba(242,168,75,0.55)" }}
+                style={{ inset: "-14px", border: `1.5px solid ${charConfig.companionColor}88` }}
                 initial={{ opacity: 0.8, scale: 0.88 }}
                 animate={{ opacity: 0, scale: 1.55 }}
                 exit={{ opacity: 0 }}
@@ -1182,9 +1196,9 @@ export default function DreamSpace() {
 
         <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charConfig.companionColor} />
 
-        {/* ── ANUAN WAKE SUBTITLE ── */}
+        {/* ── WAKE SUBTITLE — works for all characters ── */}
         <AnimatePresence>
-          {wakeText !== null && activeKey === "anuan" && (
+          {wakeText !== null && (
             <motion.div
               key="wake-subtitle"
               initial={{ opacity: 0, y: 6, scale: 0.97 }}
@@ -1196,19 +1210,19 @@ export default function DreamSpace() {
                 background: "rgba(6, 6, 14, 0.82)",
                 backdropFilter: "blur(22px)",
                 WebkitBackdropFilter: "blur(22px)",
-                border: "1px solid rgba(242,168,75,0.22)",
-                boxShadow: "0 0 28px rgba(242,168,75,0.08), inset 0 1px 0 rgba(255,255,255,0.04)",
+                border: `1px solid hsl(${hsl} / 0.22)`,
+                boxShadow: `0 0 28px hsl(${hsl} / 0.08), inset 0 1px 0 rgba(255,255,255,0.04)`,
               }}
             >
               <p className="text-[9px] tracking-[0.28em] mb-1.5 uppercase"
-                style={{ color: "rgba(242,168,75,0.50)" }}>
-                Anuan
+                style={{ color: `hsl(${hsl} / 0.50)` }}>
+                {charConfig.enName}
               </p>
               <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.65)" }}>
                 "{wakeTyped}
                 <motion.span
                   className="inline-block w-[2px] h-[1em] ml-[1px] align-middle rounded-full"
-                  style={{ backgroundColor: "#F2A84B" }}
+                  style={{ backgroundColor: charConfig.companionColor }}
                   animate={{ opacity: [0.8, 0, 0.8] }}
                   transition={{ duration: 0.75, repeat: Infinity }}
                 />"
