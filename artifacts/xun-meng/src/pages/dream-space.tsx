@@ -175,6 +175,20 @@ function messagesToApiHistory(msgs: ChatMessage[]) {
   }));
 }
 
+/**
+ * Strip character-name prefixes from the start of AI replies.
+ * Removes patterns like:
+ *   [阿暖], [暮歌], [岛深], [Anuan], [Muge], [Daoshen], [Unknown]
+ *   阿暖：, 暮歌：, 岛深：, Anuan:, Muge:, Daoshen:, Unknown:, unknown:
+ */
+function stripCharPrefix(text: string): string {
+  return text
+    .replace(/^(\[Unknown\]|\[unknown\]|\[\s*\])\s*[:：]?\s*/, "")
+    .replace(/^(\[\u963f\u6696\]|\[\u66ae\u6b4c\]|\[\u5c9b\u6df1\]|\[Anuan\]|\[Muge\]|\[Daoshen\])\s*[:：]?\s*/i, "")
+    .replace(/^(\u963f\u6696|\u66ae\u6b4c|\u5c9b\u6df1|Anuan|Muge|Daoshen|Unknown|unknown)\s*[:：]\s*/, "")
+    .trim();
+}
+
 // ── Image compression utility ──────────────────────────────────────────────
 /**
  * Resize + compress an image DataURL to a JPEG of at most `maxWidth` px wide.
@@ -471,11 +485,14 @@ export default function DreamSpace() {
     if (bgAudioRef.current) bgAudioRef.current.volume = bgMusicVolume;
   }, [bgMusicVolume]);
 
-  // Auto-pause music during recording
+  // Duck background music during recording (lower, never pause)
   useEffect(() => {
-    if (voiceStatusS === "recording" && bgAudioRef.current && !bgAudioRef.current.paused) {
-      bgAudioRef.current.pause();
-      setBgMusicPlaying(false);
+    const audio = bgAudioRef.current;
+    if (!audio || audio.paused) return;
+    if (voiceStatusS === "recording") {
+      audio.volume = bgMusicVolume * 0.3;
+    } else {
+      audio.volume = bgMusicVolume;
     }
   }, [voiceStatusS]);
 
@@ -720,7 +737,7 @@ export default function DreamSpace() {
       if (!settings?.hasApiKey) {
         // No API key — use local character-specific mock
         await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-        replyContent = getMockReply(activeKey, msg, updatedMsgs);
+        replyContent = stripCharPrefix(getMockReply(activeKey, msg, updatedMsgs));
         usedMock = true;
       } else {
         try {
@@ -741,12 +758,12 @@ export default function DreamSpace() {
               imageUrl: imgUrl ?? null,
             },
           });
-          replyContent = res.reply;
+          replyContent = stripCharPrefix(res.reply);
           if (res.isMock) usedMock = true;
         } catch {
           // API call failed — fall back to local mock silently with toast
           await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-          replyContent = getMockReply(activeKey, msg, updatedMsgs);
+          replyContent = stripCharPrefix(getMockReply(activeKey, msg, updatedMsgs));
           usedMock = true;
         }
       }
