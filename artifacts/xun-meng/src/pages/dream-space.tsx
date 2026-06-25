@@ -305,6 +305,46 @@ export default function DreamSpace() {
   const [typingMsgId,   setTypingMsgId]   = useState<string | null>(null);
   const [typingContent, setTypingContent] = useState<string>("");
 
+  // ── TTS subtitle sync (voice-timed, independent of chat typewriter) ─
+  const [subtitleText,   setSubtitleText]   = useState<string>("");
+  const subtitleFullRef  = useRef<string>("");
+  const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subtitleLastIdx  = useRef<number>(0);
+
+  /** Start updating subtitleText based on audio.currentTime */
+  function startSubtitleSync(audio: HTMLAudioElement, text: string) {
+    subtitleFullRef.current = text;
+    setSubtitleText("");
+    subtitleLastIdx.current = 0;
+    const isChinese = /[\u4e00-\u9fff]/.test(text);
+    const tick = () => {
+      if (!audio || !subtitleFullRef.current) return;
+      const duration = audio.duration || 1;
+      const currentTime = audio.currentTime;
+      const progress = currentTime / duration;
+      // Lead text ahead of voice: 2-5 words for English, 4-8 chars for Chinese
+      const lead = isChinese
+        ? Math.max(4, Math.ceil(text.length * 0.08))
+        : Math.max(10, Math.ceil(text.length * 0.08));
+      const targetIdx = Math.floor(progress * text.length);
+      const idx = Math.min(text.length, targetIdx + lead);
+      if (idx !== subtitleLastIdx.current) {
+        subtitleLastIdx.current = idx;
+        setSubtitleText(text.slice(0, idx));
+      }
+      if (!audio.paused && !audio.ended && audio.currentTime < audio.duration) {
+        subtitleTimerRef.current = setTimeout(tick, 80);
+      }
+    };
+    subtitleTimerRef.current = setTimeout(tick, 80);
+  }
+
+  function stopSubtitleSync() {
+    if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
+    subtitleTimerRef.current = null;
+    subtitleLastIdx.current = 0;
+  }
+
   function startTypewriter(msgId: string, fullText: string, intervalMs = 38) {
     if (typingStartedRef.current === msgId) return; // already started
     typingStartedRef.current = msgId;
@@ -674,11 +714,26 @@ export default function DreamSpace() {
     audio.onended = () => {
       ttsCacheRef.current.delete(msgId);
       URL.revokeObjectURL(audioUrl!);
+      stopSubtitleSync();
       restoreBg();
+      // Auto-dismiss wake panel after audio ends
+      if (msgId.startsWith("wake_")) {
+        setTimeout(() => {
+          setWakeText(null);
+          setWakeTyped("");
+        }, 2500);
+      }
     };
     audio.onerror = () => {
       onPlayStart?.(5); // start typewriter if not started yet
+      stopSubtitleSync();
       restoreBg();
+    };
+    audio.onpause = () => {
+      stopSubtitleSync();
+    };
+    audio.onplay = () => {
+      startSubtitleSync(audio, text);
     };
 
     setTtsStatus("playing");
@@ -1219,13 +1274,17 @@ export default function DreamSpace() {
                 {charConfig.enName}
               </p>
               <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.65)" }}>
-                "{wakeTyped}
+                {ttsStatus === "playing" && subtitleText ? (
+                  <>"{subtitleText}"</>
+                ) : (
+                  <>"{wakeTyped}"</>
+                )}
                 <motion.span
                   className="inline-block w-[2px] h-[1em] ml-[1px] align-middle rounded-full"
                   style={{ backgroundColor: charConfig.companionColor }}
                   animate={{ opacity: [0.8, 0, 0.8] }}
                   transition={{ duration: 0.75, repeat: Infinity }}
-                />"
+                />
               </p>
             </motion.div>
           )}
@@ -1264,7 +1323,7 @@ export default function DreamSpace() {
                 </div>
               ) : (
                 <p className="text-[13px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.65)" }}>
-                  {typingContent || "…"}
+                  {subtitleText || "…"}
                   <motion.span
                     className="inline-block w-[2px] h-[1em] ml-[2px] align-middle rounded-full"
                     style={{ backgroundColor: charConfig.particleColor }}
