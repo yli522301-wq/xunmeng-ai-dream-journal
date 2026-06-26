@@ -1129,7 +1129,7 @@ export default function DreamSpace() {
       {/* ── TOP BAR ── */}
       <header className="w-full flex items-center justify-between px-5 py-4 relative flex-shrink-0" style={{ zIndex: 20 }}>
         <div className="flex items-center gap-3">
-          <Link href="/dreams">
+          <Link href="/archive">
             <button className="transition-colors" style={{ color: "rgba(255,255,255,0.22)" }}
               onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.55)")}
               onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.22)")}>

@@ -151,7 +151,7 @@ export default function NewDream() {
       queryClient.invalidateQueries({ queryKey: getListDreamsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetDreamStatsQueryKey() });
       toast({ title: "梦境已保存" });
-      setLocation(`/dream/${result.id}`);
+      setLocation(`/archive/${result.id}`);
     } catch (error) {
       toast({ title: "保存失败", description: String(error), variant: "destructive" });
     }
