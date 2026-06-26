@@ -21,7 +21,7 @@ const formSchema = z.object({
   relationship: z.string(),
   language: z.enum(["zh", "en"]),
   voiceType: z.string(),
-  systemPrompt: z.string().optional(),
+  systemPrompt: z.string().optional().default(""),
 });
 
 export default function CharacterNew() {

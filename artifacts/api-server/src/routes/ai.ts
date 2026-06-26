@@ -495,7 +495,7 @@ router.post("/ai/dream-chat", async (req, res): Promise<void> => {
 
   const apiKey = process.env.OPENAI_API_KEY;
   const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
-  const { activeCharacter, history, userInput, imageUrl } = parsed.data;
+  const { activeCharacter, history, userInput, imageUrl, musicContext } = parsed.data;
 
   const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
   const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
@@ -519,8 +519,13 @@ router.post("/ai/dream-chat", async (req, res): Promise<void> => {
       return parts;
     };
 
+    // Music context — only inject when music is actively playing
+    const musicNote = musicContext?.isPlaying
+      ? `当前正在播放的背景音乐：${musicContext.title}${musicContext.artist ? ` — ${musicContext.artist}` : ""}${musicContext.mood ? ` (气氛：${musicContext.mood})` : ""}。可以自然地将音乐气氛融入回复，但不要每次都提及。不要声称自己在听这首歌的声音。`
+      : "";
+
     const oaiMessages: OAIMsg[] = [
-      { role: "system", content: sysPrompt },
+      { role: "system", content: sysPrompt + musicNote },
       ...history.map(item => ({
         role: item.role as "user" | "assistant",
         content: item.role === "user"

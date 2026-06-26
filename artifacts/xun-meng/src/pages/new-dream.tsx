@@ -50,7 +50,7 @@ export default function NewDream() {
     query: { queryKey: getGetActiveCharacterQueryKey() }
   });
 
-  const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
   const recognition = useRef<any>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -132,9 +132,7 @@ export default function NewDream() {
       if (res.summary) {
         form.setValue("content", res.summary); 
       }
-      if (!form.getValues("title") && res.title) {
-         // Assuming organize might return a title if missing, or we just keep it
-      }
+      // res.title is not part of AiOrganizeResult — only summary is used above
     } catch (error) {
       toast({ title: "分析失败", description: String(error), variant: "destructive" });
     }

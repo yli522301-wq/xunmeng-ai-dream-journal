@@ -182,7 +182,7 @@ export default function DreamCorridor() {
               transition={{ delay: 0.2, duration: 0.7 }}
             >
               <CircularGallery
-                items={galleryItems}
+                items={galleryItems as any}
                 bend={0.30}
                 borderRadius={0.048}
                 scrollEase={0.038}

@@ -36,6 +36,16 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface MusicContext {
+  source: "builtin" | "local";
+  title: string;
+  artist: string;
+  fileName: string;
+  type: string;
+  mood: string;
+  isPlaying: boolean;
+}
+
 export interface DreamCharConfig {
   key: CharKey;
   nameMatch: string;
@@ -265,6 +275,8 @@ export default function DreamSpace() {
   const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const [bgMusicVolume,  setBgMusicVolume]  = useState(0.3);
   const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
+  const [musicContext, setMusicContext] = useState<MusicContext | null>(null);
+  const musicContextRef = useRef<MusicContext | null>(null);
 
   // ── ElevenLabs TTS state ──────────────────────────────────────────────────
   const [ttsEnabled, setTtsEnabledState] = useState(() => {
@@ -465,7 +477,7 @@ export default function DreamSpace() {
   useEffect(() => {
     const SR: any =
       typeof window !== "undefined"
-        ? (window.SpeechRecognition || (window as any).webkitSpeechRecognition)
+        ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
         : null;
     if (!SR) return;
 
@@ -576,7 +588,25 @@ export default function DreamSpace() {
     playMusic(def.music);
   };
   const handleSoundChange = (s: AmbientSoundType) => { setAmbientSound(s); playAmbient(s); };
-  const handleMusicChange = (m: MusicType)         => { setMusic(m); playMusic(m); };
+  const handleMusicChange = (m: MusicType) => {
+    setMusic(m);
+    playMusic(m);
+    if (m === "none") {
+      setMusicContext(null);
+      musicContextRef.current = null;
+    } else {
+      const labels: Record<MusicType, string> = {
+        none: "无", piano: "钢琴微光", fog: "雾蓝氛围",
+        strings: "夜色弦音", "piano-rain": "雨夜钢琴",
+      };
+      const ctx: MusicContext = {
+        source: "builtin", title: labels[m], artist: "巡梦",
+        fileName: "", type: "synth", mood: "", isPlaying: true,
+      };
+      setMusicContext(ctx);
+      musicContextRef.current = ctx;
+    }
+  };
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const charConfig    = activeChar ? getCharConfig(activeChar.name) : DREAM_CHARS[1];
@@ -831,6 +861,7 @@ export default function DreamSpace() {
               history: historyItems,
               userInput: msg || "[图片]",
               imageUrl: imgUrl ?? null,
+              musicContext: musicContextRef.current,
             },
           });
           replyContent = stripCharPrefix(res.reply);
@@ -983,15 +1014,42 @@ export default function DreamSpace() {
     if (bgMusicUrl) URL.revokeObjectURL(bgMusicUrl);
     const url = URL.createObjectURL(file);
     setBgMusicUrl(url);
-    setBgMusicName(file.name.replace(/\.[^.]+$/, ""));
+    const name = file.name.replace(/\.[^.]+$/, "");
+    setBgMusicName(name);
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? "";
+    const ctx: MusicContext = { source: "local", title: name, artist: "", fileName: file.name, type: ext, mood: "", isPlaying: false };
+    setMusicContext(ctx);
+    musicContextRef.current = ctx;
+    // Try read ID3 tags
+    if (ext === "mp3") {
+      import("@/lib/read-id3").then(m => m.readId3Meta(file)).then(meta => {
+        if (meta.title || meta.artist) {
+          const updated: MusicContext = {
+            ...ctx,
+            title: meta.title || ctx.title,
+            artist: meta.artist || ctx.artist,
+          };
+          setMusicContext(updated);
+          musicContextRef.current = updated;
+        }
+      }).catch(() => { /* ignore */ });
+    }
     if (bgAudioRef.current) {
       bgAudioRef.current.src = url;
       bgAudioRef.current.volume = bgMusicVolume;
       bgAudioRef.current.play()
-        .then(() => setBgMusicPlaying(true))
+        .then(() => {
+          setBgMusicPlaying(true);
+          const updated = { ...ctx, isPlaying: true };
+          setMusicContext(updated);
+          musicContextRef.current = updated;
+        })
         .catch(() => {
           toast({ title: "这首音乐暂时无法播放，请换一首。" });
           setBgMusicPlaying(false);
+          const updated = { ...ctx, isPlaying: false };
+          setMusicContext(updated);
+          musicContextRef.current = updated;
         });
     }
     e.target.value = "";
@@ -1002,9 +1060,21 @@ export default function DreamSpace() {
     if (bgMusicPlaying) {
       bgAudioRef.current.pause();
       setBgMusicPlaying(false);
+      if (musicContextRef.current) {
+        const updated = { ...musicContextRef.current, isPlaying: false };
+        setMusicContext(updated);
+        musicContextRef.current = updated;
+      }
     } else {
       bgAudioRef.current.play()
-        .then(() => setBgMusicPlaying(true))
+        .then(() => {
+          setBgMusicPlaying(true);
+          if (musicContextRef.current) {
+            const updated = { ...musicContextRef.current, isPlaying: true };
+            setMusicContext(updated);
+            musicContextRef.current = updated;
+          }
+        })
         .catch(() => toast({ title: "这首音乐暂时无法播放，请换一首。" }));
     }
   };

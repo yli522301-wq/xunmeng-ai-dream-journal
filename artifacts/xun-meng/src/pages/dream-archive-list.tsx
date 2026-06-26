@@ -356,7 +356,7 @@ export default function DreamArchiveList() {
             transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
           >
             <ChromaGrid
-              items={chromaItems}
+              items={chromaItems as any}
               onItemClick={(item: { dreamId: string }) => setLocation(`/archive/${item.dreamId}`)}
               radius={300}
             />

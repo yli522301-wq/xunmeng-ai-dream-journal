@@ -27,7 +27,7 @@ const SOUNDS: { id: AmbientSoundType; icon: string; label: string }[] = [
   { id: "none",  icon: "—", label: "无" },
   { id: "rain",  icon: "⛆", label: "雨声" },
   { id: "night", icon: "♩", label: "夜色" },
-  { id: "fire",  icon: "⬡", label: "壁炉" },
+  { id: "ocean",  icon: "~", label: "深海" },
 ];
 
 const MUSIC: { id: MusicType; icon: string; label: string }[] = [

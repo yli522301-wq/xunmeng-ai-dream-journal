@@ -45,3 +45,5 @@ export * from './dreamUpdateMood';
 export * from './errorResponse';
 export * from './getChatHistoryParams';
 export * from './healthStatus';
+export * from './musicContext';
+export * from './musicContextSource';

@@ -849,6 +849,25 @@ components:
         imageUrl:
           type: ["string", "null"]
 
+    MusicContext:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [builtin, local]
+        title:
+          type: string
+        artist:
+          type: string
+        fileName:
+          type: string
+        type:
+          type: string
+        mood:
+          type: string
+        isPlaying:
+          type: boolean
+
     DreamChatInput:
       type: object
       required:
@@ -867,6 +886,9 @@ components:
           type: string
         imageUrl:
           type: ["string", "null"]
+        musicContext:
+          type: ["object", "null"]
+          $ref: "#/components/schemas/MusicContext"
 
     DreamChatResult:
       type: object

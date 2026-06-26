@@ -330,6 +330,24 @@ export interface DreamChatHistoryItem {
   imageUrl?: string | null;
 }
 
+export type MusicContextSource = typeof MusicContextSource[keyof typeof MusicContextSource];
+
+
+export const MusicContextSource = {
+  builtin: 'builtin',
+  local: 'local',
+} as const;
+
+export interface MusicContext {
+  source?: MusicContextSource;
+  title?: string;
+  artist?: string;
+  fileName?: string;
+  type?: string;
+  mood?: string;
+  isPlaying?: boolean;
+}
+
 export type DreamChatInputActiveCharacter = typeof DreamChatInputActiveCharacter[keyof typeof DreamChatInputActiveCharacter];
 
 
@@ -345,6 +363,8 @@ export interface DreamChatInput {
   userInput: string;
   /** @nullable */
   imageUrl?: string | null;
+  /** @nullable */
+  musicContext?: MusicContext | null;
 }
 
 export interface DreamChatResult {

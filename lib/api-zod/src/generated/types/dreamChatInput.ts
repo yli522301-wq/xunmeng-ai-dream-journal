@@ -7,6 +7,7 @@
  */
 import type { DreamChatHistoryItem } from './dreamChatHistoryItem';
 import type { DreamChatInputActiveCharacter } from './dreamChatInputActiveCharacter';
+import type { MusicContext } from './musicContext';
 
 export interface DreamChatInput {
   activeCharacter: DreamChatInputActiveCharacter;
@@ -14,4 +15,6 @@ export interface DreamChatInput {
   userInput: string;
   /** @nullable */
   imageUrl?: string | null;
+  /** @nullable */
+  musicContext?: MusicContext | null;
 }

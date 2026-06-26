@@ -393,7 +393,16 @@ export const DreamChatBody = zod.object({
   "imageUrl": zod.string().nullish()
 })),
   "userInput": zod.string(),
-  "imageUrl": zod.string().nullish()
+  "imageUrl": zod.string().nullish(),
+  "musicContext": zod.object({
+  "source": zod.enum(['builtin', 'local']).optional(),
+  "title": zod.string().optional(),
+  "artist": zod.string().optional(),
+  "fileName": zod.string().optional(),
+  "type": zod.string().optional(),
+  "mood": zod.string().optional(),
+  "isPlaying": zod.boolean().optional()
+}).nullish()
 })
 
 export const DreamChatResponse = zod.object({
