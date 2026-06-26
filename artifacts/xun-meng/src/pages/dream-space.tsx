@@ -855,13 +855,15 @@ export default function DreamSpace() {
             imageUrl: m.imageUrl ?? null,
           }));
 
+          const musicCtx = musicContextRef.current;
+          console.log("Sending musicContext:", musicCtx);
           const res = await dreamChatMutation.mutateAsync({
             data: {
               activeCharacter: activeKey,
               history: historyItems,
               userInput: msg || "[图片]",
               imageUrl: imgUrl ?? null,
-              musicContext: musicContextRef.current,
+              musicContext: musicCtx,
             },
           });
           replyContent = stripCharPrefix(res.reply);

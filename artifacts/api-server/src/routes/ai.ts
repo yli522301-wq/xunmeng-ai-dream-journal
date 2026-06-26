@@ -497,6 +497,8 @@ router.post("/ai/dream-chat", async (req, res): Promise<void> => {
   const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
   const { activeCharacter, history, userInput, imageUrl, musicContext } = parsed.data;
 
+  console.log("Received musicContext:", musicContext);
+
   const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
   const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
 
@@ -520,9 +522,30 @@ router.post("/ai/dream-chat", async (req, res): Promise<void> => {
     };
 
     // Music context — only inject when music is actively playing
-    const musicNote = musicContext?.isPlaying
-      ? `当前正在播放的背景音乐：${musicContext.title}${musicContext.artist ? ` — ${musicContext.artist}` : ""}${musicContext.mood ? ` (气氛：${musicContext.mood})` : ""}。可以自然地将音乐气氛融入回复，但不要每次都提及。不要声称自己在听这首歌的声音。`
-      : "";
+    let musicNote = "";
+    if (musicContext?.isPlaying) {
+      const title = musicContext.title || (musicContext.fileName ? musicContext.fileName.replace(/\.[^.]+$/, "") : "未知歌曲");
+      const artist = musicContext.artist || "";
+      const fileName = musicContext.fileName || "";
+      musicNote = `
+
+系统已确认用户当前正在播放本地音乐：
+歌曲名称：${title}
+${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` : ""}
+你没有直接听到音频内容，但以上歌曲信息由播放器提供，是真实可信的。你知道用户当前正在播放这首歌。
+
+不要回复：
+- 我听不到这首歌
+- 我不知道你在播放什么
+- 我无法识别这首音乐
+
+可以自然地说：
+- 你现在正在播放《${title}》
+- 这首歌对你来说是不是有某种特别的感觉
+- 你是在什么情况下想听它的
+
+不要猜测歌词、旋律或歌曲背后的具体故事，除非用户主动提供。不要每次回复都强行提到音乐。`;
+    }
 
     const oaiMessages: OAIMsg[] = [
       { role: "system", content: sysPrompt + musicNote },
