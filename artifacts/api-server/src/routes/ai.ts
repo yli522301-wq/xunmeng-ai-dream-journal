@@ -316,7 +316,10 @@ router.get("/ai/settings", async (_req, res): Promise<void> => {
   });
 });
 
-router.post("/ai/organize", async (req, res): Promise<void> => {
+router.post(
+  "/ai/organize",
+  checkRateLimit,
+  async (req, res): Promise<void> => {
   const parsed = AiOrganizeDreamBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
@@ -349,9 +352,16 @@ router.post("/ai/organize", async (req, res): Promise<void> => {
     req.log.error({ err }, "AI organize failed → mock");
     res.json({ ...rnd(MOCK_ORGANIZE), isMock: true });
   }
-});
+}
+);
 
-router.post("/ai/chat", async (req, res): Promise<void> => {
+router.post(
+  "/ai/chat",
+  checkMessageLength,
+  checkRateLimit,
+  checkDailyChatLimit,
+  checkConcurrentRequest,
+  async (req, res): Promise<void> => {
   const parsed = AiChatBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
@@ -361,10 +371,6 @@ router.post("/ai/chat", async (req, res): Promise<void> => {
   if (!apiKey) {
     req.log.info("AI chat: mock");
     const reply = rnd(MOCK_CHAT);
-    // persist mock messages
-    if (parsed.data.history.length === 0) {
-      // save user message and mock reply
-    }
     res.json({ reply, isMock: true });
     return;
   }
@@ -384,12 +390,14 @@ router.post("/ai/chat", async (req, res): Promise<void> => {
     ];
 
     const reply = await openaiChat(messages, apiKey, model);
+    await incrementChatCount(req);
     res.json({ reply, isMock: false });
   } catch (err) {
     req.log.error({ err }, "AI chat failed → mock");
     res.json({ reply: rnd(MOCK_CHAT), isMock: true });
   }
-});
+}
+);
 
 // ── Per-character system prompts ──────────────────────────────────────────────
 const DREAM_CHAR_PROMPTS: Record<string, string> = {
@@ -567,10 +575,18 @@ const DREAM_CHAT_MOCK: Record<string, string[]> = {
   ],
 };
 
-router.post("/ai/tts", async (req, res): Promise<void> => {
+const MAX_TTS_LENGTH = 500;
+
+router.post(
+  "/ai/tts",
+  checkRateLimit,
+  async (req, res): Promise<void> => {
   const { text, character } = req.body as { text?: unknown; character?: unknown };
   if (typeof text !== "string" || !text.trim()) {
     res.status(400).json({ error: "text required" }); return;
+  }
+  if (text.trim().length > MAX_TTS_LENGTH) {
+    res.status(400).json({ error: "文字太长，请缩短后再试。" }); return;
   }
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
@@ -586,7 +602,8 @@ router.post("/ai/tts", async (req, res): Promise<void> => {
     req.log.error({ err: String(err) }, "TTS failed — full detail above");
     res.status(502).json({ error: String(err) });
   }
-});
+}
+);
 
 router.post(
   "/ai/dream-chat",

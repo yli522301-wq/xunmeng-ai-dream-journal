@@ -47,10 +47,12 @@ function hashIp(ip: string | undefined): string {
 }
 
 function getClientIp(req: Request): string | undefined {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-  if (Array.isArray(forwarded)) return forwarded[0]?.trim();
-  return req.socket.remoteAddress ?? undefined;
+  // req.ip is set by Express using the "trust proxy" setting configured in
+  // app.ts.  With trust proxy = 1, Express strips the trusted proxy's own
+  // address and returns the client IP that the proxy recorded — ignoring any
+  // X-Forwarded-For values a client could have prepended before the proxy hop.
+  // Fall back to the raw socket address only when req.ip is unavailable.
+  return req.ip ?? req.socket.remoteAddress ?? undefined;
 }
 
 function getDeviceFingerprint(req: Request): string {

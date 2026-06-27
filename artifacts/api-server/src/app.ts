@@ -7,6 +7,13 @@ import { existsSync } from "fs";
 
 const app: Express = express();
 
+// Trust exactly one upstream proxy hop (Replit's edge proxy).
+// This makes req.ip reflect the real client IP that the proxy recorded,
+// instead of the proxy's own socket address, while still ignoring any
+// X-Forwarded-For values that a client could have injected before the
+// trusted proxy's hop.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
