@@ -233,6 +233,43 @@ async function openaiChat(
   return json.choices[0].message.content;
 }
 
+/**
+ * Call OpenAI Responses API with web_search tool.
+ * Returns the assistant's text reply and whether a web search was actually triggered.
+ */
+async function openaiSearch(
+  input: { role: string; content: string }[],
+  apiKey: string,
+  model: string,
+): Promise<{ text: string; searched: boolean }> {
+  const resp = await withTimeout(
+    fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        input,
+        tools: [{ type: "web_search" }],
+        tool_choice: "required",
+        max_output_tokens: MAX_REPLY_TOKENS,
+      }),
+    }),
+    OPENAI_TIMEOUT_MS
+  );
+  if (!resp.ok) throw new Error(`OpenAI search ${resp.status}`);
+  const json = await resp.json() as {
+    output?: Array<
+      | { type: "web_search_call"; status: string; action?: { queries?: string[] } }
+      | { type: "message"; content?: Array<{ text?: string }> }
+    >;
+    usage?: { total_tokens?: number };
+  };
+  const searched = (json.output ?? []).some(o => o.type === "web_search_call");
+  const msg = (json.output ?? []).find(o => o.type === "message");
+  const text = msg?.content?.[0]?.text ?? "";
+  return { text, searched };
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 router.get("/ai/settings", async (_req, res): Promise<void> => {
@@ -591,6 +628,50 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
 不要猜测歌词、旋律或歌曲背后的具体故事，除非用户主动提供。不要每次回复都强行提到音乐。`;
       }
 
+      let reply: string;
+
+      if (songSearch) {
+        // ── Song fact search branch: Responses API + web_search ─────────────
+        const title = musicContext?.title || (musicContext?.fileName ? musicContext.fileName.replace(/\.[^.]+$/, "") : "未知歌曲");
+        const artist = musicContext?.artist || "";
+        const fileName = musicContext?.fileName || "";
+        req.log.info({ songSearch: true, title, artist, fileName }, "dream-chat: song search branch");
+
+        const searchInput: { role: string; content: string }[] = [
+          { role: "system", content: sysPrompt + musicNote + `
+
+You are now answering a factual question about the current song. Use web search to find accurate, verifiable information. Reply in English.
+
+Rules:
+- Prioritize verifiable public sources.
+- Distinguish between confirmed facts and online interpretations.
+- Do not invent the artist's motivations.
+- If you cannot find reliable information, say so clearly: "I couldn't find reliable information about this just now."
+- If there are multiple versions or artists with similar names, ask the user to confirm the exact artist or version first.
+- Keep the reply natural and concise (2-4 short paragraphs max).
+- After explaining the song story, naturally return to the user's own feelings if relevant.
+- Never say "I can't dive into the specific story, but songs like this usually..." — if search fails, be honest.` },
+          ...history.map(item => ({
+            role: item.role,
+            content: item.role === "user" ? item.content : item.content,
+          })),
+          {
+            role: "user",
+            content: `[Current song: "${title}"${artist ? ` by ${artist}` : ""}${fileName ? ` (file: ${fileName})` : ""}] ${userInput}`,
+          },
+        ];
+
+        const searchResult = await openaiSearch(searchInput, apiKey, model);
+        reply = searchResult.text;
+        req.log.info({ searched: searchResult.searched, hasReply: !!reply }, "dream-chat: song search result");
+        await incrementChatCount(req);
+        await incrementSongSearchCount(req);
+        await logRequest(req, "dream-chat", true);
+        res.json({ reply, isMock: false });
+        return;
+      }
+
+      // ── Normal chat branch: Chat Completions API ────────────────────────
       const oaiMessages: OAIMsg[] = [
         { role: "system", content: sysPrompt + musicNote },
         ...history.map(item => ({
@@ -602,11 +683,8 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
         { role: "user", content: buildContent(userInput, imageUrl) },
       ];
 
-      const reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
+      reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
       await incrementChatCount(req);
-      if (songSearch) {
-        await incrementSongSearchCount(req);
-      }
       await logRequest(req, "dream-chat", true);
       res.json({ reply, isMock: false });
     } catch (err) {
