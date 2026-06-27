@@ -6,6 +6,16 @@ import {
   AiRecognizeImageBody,
   DreamChatBody,
 } from "@workspace/api-zod";
+import {
+  checkMessageLength,
+  checkRateLimit,
+  checkDailyChatLimit,
+  checkConcurrentRequest,
+  incrementChatCount,
+  logRequest,
+  errorMessages,
+  type LimitError,
+} from "../middleware/rate-limit";
 
 const router: IRouter = Router();
 
@@ -191,18 +201,33 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
 
 // ─── Real API helpers ─────────────────────────────────────────────────────────
 
+const OPENAI_TIMEOUT_MS = 30_000;
+const MAX_REPLY_TOKENS = 800;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT")), ms)
+    ),
+  ]);
+}
+
 async function openaiChat(
   messages: { role: string; content: unknown }[],
   apiKey: string,
   model: string,
 ): Promise<string> {
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, temperature: 0.92 }),
-  });
+  const resp = await withTimeout(
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, temperature: 0.92, max_tokens: MAX_REPLY_TOKENS }),
+    }),
+    OPENAI_TIMEOUT_MS
+  );
   if (!resp.ok) throw new Error(`OpenAI ${resp.status}`);
-  const json = await resp.json() as { choices: { message: { content: string } }[] };
+  const json = await resp.json() as { choices: { message: { content: string } }[]; usage?: { total_tokens?: number } };
   return json.choices[0].message.content;
 }
 
@@ -489,45 +514,50 @@ router.post("/ai/tts", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/ai/dream-chat", async (req, res): Promise<void> => {
-  const parsed = DreamChatBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+router.post(
+  "/ai/dream-chat",
+  checkMessageLength,
+  checkRateLimit,
+  checkDailyChatLimit,
+  checkConcurrentRequest,
+  async (req, res): Promise<void> => {
+    const parsed = DreamChatBody.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
-  const { activeCharacter, history, userInput, imageUrl, musicContext } = parsed.data;
+    const apiKey = process.env.OPENAI_API_KEY;
+    const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
+    const { activeCharacter, history, userInput, imageUrl, musicContext } = parsed.data;
 
-  console.log("Received musicContext:", musicContext);
+    const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
+    const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
 
-  const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
-  const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
+    if (!apiKey) {
+      req.log.info({ activeCharacter }, "dream-chat: mock (no key)");
+      res.json({ reply: rnd(mockPool), isMock: true });
+      await logRequest(req, "dream-chat", true);
+      return;
+    }
 
-  if (!apiKey) {
-    req.log.info({ activeCharacter }, "dream-chat: mock (no key)");
-    res.json({ reply: rnd(mockPool), isMock: true });
-    return;
-  }
+    try {
+      type ContentPart =
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string; detail: "low" } };
+      type OAIMsg = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
 
-  try {
-    type ContentPart =
-      | { type: "text"; text: string }
-      | { type: "image_url"; image_url: { url: string; detail: "low" } };
-    type OAIMsg = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
+      const buildContent = (text: string, img?: string | null): string | ContentPart[] => {
+        if (!img) return text || "(空)";
+        const parts: ContentPart[] = [{ type: "image_url", image_url: { url: img, detail: "low" } }];
+        if (text) parts.push({ type: "text", text });
+        return parts;
+      };
 
-    const buildContent = (text: string, img?: string | null): string | ContentPart[] => {
-      if (!img) return text || "(空)";
-      const parts: ContentPart[] = [{ type: "image_url", image_url: { url: img, detail: "low" } }];
-      if (text) parts.push({ type: "text", text });
-      return parts;
-    };
-
-    // Music context — only inject when music is actively playing
-    let musicNote = "";
-    if (musicContext?.isPlaying) {
-      const title = musicContext.title || (musicContext.fileName ? musicContext.fileName.replace(/\.[^.]+$/, "") : "未知歌曲");
-      const artist = musicContext.artist || "";
-      const fileName = musicContext.fileName || "";
-      musicNote = `
+      // Music context — only inject when music is actively playing
+      let musicNote = "";
+      if (musicContext?.isPlaying) {
+        const title = musicContext.title || (musicContext.fileName ? musicContext.fileName.replace(/\.[^.]+$/, "") : "未知歌曲");
+        const artist = musicContext.artist || "";
+        const fileName = musicContext.fileName || "";
+        musicNote = `
 
 系统已确认用户当前正在播放本地音乐：
 歌曲名称：${title}
@@ -545,57 +575,91 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
 - 你是在什么情况下想听它的
 
 不要猜测歌词、旋律或歌曲背后的具体故事，除非用户主动提供。不要每次回复都强行提到音乐。`;
+      }
+
+      const oaiMessages: OAIMsg[] = [
+        { role: "system", content: sysPrompt + musicNote },
+        ...history.map(item => ({
+          role: item.role as "user" | "assistant",
+          content: item.role === "user"
+            ? buildContent(item.content, item.imageUrl)
+            : item.content,
+        })),
+        { role: "user", content: buildContent(userInput, imageUrl) },
+      ];
+
+      const reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
+      await incrementChatCount(req);
+      await logRequest(req, "dream-chat", true);
+      res.json({ reply, isMock: false });
+    } catch (err) {
+      const errStr = String(err);
+      const isTimeout = errStr.includes("TIMEOUT");
+      if (isTimeout) {
+        req.log.warn({ err: errStr }, "dream-chat timeout");
+        await logRequest(req, "dream-chat", false, undefined, "timeout");
+        res.status(504).json({
+          error: errorMessages.timeout,
+          code: "timeout",
+        } as unknown as LimitError);
+        return;
+      }
+      req.log.error({ err: errStr }, "dream-chat failed");
+      await logRequest(req, "dream-chat", false, undefined, errStr.slice(0, 100));
+      res.json({ reply: rnd(mockPool), isMock: true });
+    }
+  }
+);
+
+router.post(
+  "/ai/recognize-image",
+  checkRateLimit,
+  checkConcurrentRequest,
+  async (req, res): Promise<void> => {
+    const parsed = AiRecognizeImageBody.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    const model = process.env.AI_MODEL_NAME ?? "gpt-4o";
+
+    if (!apiKey) {
+      req.log.info("AI image: mock");
+      res.json({ ...MOCK_IMAGE, isMock: true });
+      await logRequest(req, "recognize-image", true);
+      return;
     }
 
-    const oaiMessages: OAIMsg[] = [
-      { role: "system", content: sysPrompt + musicNote },
-      ...history.map(item => ({
-        role: item.role as "user" | "assistant",
-        content: item.role === "user"
-          ? buildContent(item.content, item.imageUrl)
-          : item.content,
-      })),
-      { role: "user", content: buildContent(userInput, imageUrl) },
-    ];
-
-    const reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
-    res.json({ reply, isMock: false });
-  } catch (err) {
-    req.log.error({ err }, "dream-chat failed → mock");
-    res.json({ reply: rnd(mockPool), isMock: true });
-  }
-});
-
-router.post("/ai/recognize-image", async (req, res): Promise<void> => {
-  const parsed = AiRecognizeImageBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.AI_MODEL_NAME ?? "gpt-4o";
-
-  if (!apiKey) {
-    req.log.info("AI image: mock");
-    res.json({ ...MOCK_IMAGE, isMock: true });
-    return;
-  }
-
-  try {
-    const prompt = `请识别这张图片中的内容，尤其关注文字、手写笔记、梦境相关元素、情绪氛围和可能的象征物。请返回（仅返回 JSON）：
+    try {
+      const prompt = `请识别这张图片中的内容，尤其关注文字、手写笔记、梦境相关元素、情绪氛围和可能的象征物。请返回（仅返回 JSON）：
 {"description":"图片内容描述","recognizedText":"识别出的文字（没有则为空字符串）","dreamElements":["元素1","元素2"],"suggestedTitle":"建议梦境标题","draftContent":"可以转成梦境记录的正文（2-5句话）"}`;
 
-    const messages = [{
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: `data:${parsed.data.mimeType ?? "image/jpeg"};base64,${parsed.data.imageBase64}` } },
-        { type: "text", text: prompt },
-      ],
-    }];
-    const text = await openaiChat(messages, apiKey, model);
-    res.json({ ...JSON.parse(text), isMock: false });
-  } catch (err) {
-    req.log.error({ err }, "AI image failed → mock");
-    res.json({ ...MOCK_IMAGE, isMock: true });
+      const messages = [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: `data:${parsed.data.mimeType ?? "image/jpeg"};base64,${parsed.data.imageBase64}` } },
+          { type: "text", text: prompt },
+        ],
+      }];
+      const text = await openaiChat(messages, apiKey, model);
+      await logRequest(req, "recognize-image", true);
+      res.json({ ...JSON.parse(text), isMock: false });
+    } catch (err) {
+      const errStr = String(err);
+      const isTimeout = errStr.includes("TIMEOUT");
+      if (isTimeout) {
+        req.log.warn({ err: errStr }, "recognize-image timeout");
+        await logRequest(req, "recognize-image", false, undefined, "timeout");
+        res.status(504).json({
+          error: errorMessages.timeout,
+          code: "timeout",
+        } as unknown as LimitError);
+        return;
+      }
+      req.log.error({ err: errStr }, "AI image failed");
+      await logRequest(req, "recognize-image", false, undefined, errStr.slice(0, 100));
+      res.json({ ...MOCK_IMAGE, isMock: true });
+    }
   }
-});
+);
 
 export default router;

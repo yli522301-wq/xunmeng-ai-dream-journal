@@ -810,6 +810,13 @@ export default function DreamSpace() {
     const imgUrl = text ? null : pendingImageDataUrl;
     if (!msg && !imgUrl && !voiceData) return;
     if (!activeChar) return;
+    // Front-end length guard
+    if (msg.length > 1000) {
+      toast({ title: "这段话有点长，可以分成几次慢慢告诉我。" });
+      return;
+    }
+    // Block concurrent sends
+    if (isThinking) return;
     setInputText("");
     if (!text) setPendingImageDataUrl(null);
     setThinkingMsg(THINKING_MSG[activeKey]);
@@ -856,7 +863,6 @@ export default function DreamSpace() {
           }));
 
           const musicCtx = musicContextRef.current;
-          console.log("Sending musicContext:", musicCtx);
           const res = await dreamChatMutation.mutateAsync({
             data: {
               activeCharacter: activeKey,
@@ -868,8 +874,18 @@ export default function DreamSpace() {
           });
           replyContent = stripCharPrefix(res.reply);
           if (res.isMock) usedMock = true;
-        } catch {
-          // API call failed — fall back to local mock silently with toast
+        } catch (err) {
+          // Check for structured limit errors from backend
+          const apiErr = err as { status?: number; data?: { code?: string; error?: string } };
+          const code = apiErr?.data?.code;
+          const msgText = apiErr?.data?.error;
+          if (code && msgText) {
+            toast({ title: msgText });
+            // For rate/daily/timeout limits, don't fall back to mock
+            setIsThinking(false);
+            return;
+          }
+          // Generic API failure — fall back to local mock
           await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
           replyContent = stripCharPrefix(getMockReply(activeKey, msg, updatedMsgs));
           usedMock = true;
