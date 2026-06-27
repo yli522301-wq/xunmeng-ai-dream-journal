@@ -14,6 +14,33 @@ function getAnonId(req: unknown): string {
   return (req as { anonymousId: string }).anonymousId;
 }
 
+const DEFAULT_ANUAN = {
+  name: "阿暖",
+  role: "梦境记录与回忆陪伴者",
+  personality: ["温暖", "陪伴", "情绪敏感", "不说教", "简洁"],
+  speakingStyle: "温暖陪伴型",
+  relationship: "梦境陪伴者",
+  language: "zh" as const,
+  voiceType: "中性清澈",
+  systemPrompt: "你是阿暖，温暖陪伴型梦境朋友。先接住情绪再慢慢分析，语气亲近柔和，生活化。",
+  isActive: true,
+};
+
+async function seedDefaultCharacter(anonId: string) {
+  const [existing] = await db
+    .select()
+    .from(charactersTable)
+    .where(eq(charactersTable.anonymousId, anonId))
+    .limit(1);
+  if (existing) return existing;
+
+  const [character] = await db
+    .insert(charactersTable)
+    .values({ anonymousId: anonId, ...DEFAULT_ANUAN })
+    .returning();
+  return character;
+}
+
 const router: IRouter = Router();
 
 router.get("/characters/active", async (req, res): Promise<void> => {
@@ -24,11 +51,14 @@ router.get("/characters/active", async (req, res): Promise<void> => {
     .where(and(eq(charactersTable.anonymousId, anonId), eq(charactersTable.isActive, true)))
     .limit(1);
 
-  if (!character) {
-    res.status(404).json({ error: "No active character" });
+  if (character) {
+    res.json(character);
     return;
   }
-  res.json(character);
+
+  // Auto-seed default character for first-time sessions
+  const seeded = await seedDefaultCharacter(anonId);
+  res.json(seeded);
 });
 
 router.get("/characters", async (req, res): Promise<void> => {
@@ -38,6 +68,18 @@ router.get("/characters", async (req, res): Promise<void> => {
     .from(charactersTable)
     .where(eq(charactersTable.anonymousId, anonId))
     .orderBy(desc(charactersTable.createdAt));
+
+  if (characters.length === 0) {
+    await seedDefaultCharacter(anonId);
+    const seeded = await db
+      .select()
+      .from(charactersTable)
+      .where(eq(charactersTable.anonymousId, anonId))
+      .orderBy(desc(charactersTable.createdAt));
+    res.json(seeded);
+    return;
+  }
+
   res.json(characters);
 });
 
