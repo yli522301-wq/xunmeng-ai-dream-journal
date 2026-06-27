@@ -863,6 +863,19 @@ export default function DreamSpace() {
           }));
 
           const musicCtx = musicContextRef.current;
+          // Detect song search intent: asking about artist, release info, story behind the song
+          const isSongSearch = (() => {
+            const q = msg.toLowerCase();
+            const keywords = [
+              "是谁写的", "是谁唱的", "歌手", "艺人", "作者", "创作者",
+              "什么时候出的", "发行", "专辑", "时间", "日期",
+              "创作背景", "故事", "代表什么", "意义", "含义", "稀深吮",
+              "who wrote", "who sang", "who composed", "artist", "singer",
+              "released", "album", "when", "date", "background", "story", "meaning",
+              "原版", "翻唱", "cover", "版本", "经典", "老歌",
+            ];
+            return keywords.some(k => q.includes(k));
+          })();
           const res = await dreamChatMutation.mutateAsync({
             data: {
               activeCharacter: activeKey,
@@ -870,6 +883,7 @@ export default function DreamSpace() {
               userInput: msg || "[图片]",
               imageUrl: imgUrl ?? null,
               musicContext: musicCtx,
+              songSearch: isSongSearch,
             },
           });
           replyContent = stripCharPrefix(res.reply);

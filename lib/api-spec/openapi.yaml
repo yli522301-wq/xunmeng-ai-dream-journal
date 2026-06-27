@@ -889,6 +889,10 @@ components:
         musicContext:
           type: ["object", "null"]
           $ref: "#/components/schemas/MusicContext"
+        songSearch:
+          type: boolean
+          description: 当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制
+          default: false
 
     DreamChatResult:
       type: object

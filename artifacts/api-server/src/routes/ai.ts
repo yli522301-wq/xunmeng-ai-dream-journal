@@ -12,6 +12,8 @@ import {
   checkDailyChatLimit,
   checkConcurrentRequest,
   incrementChatCount,
+  incrementSongSearchCount,
+  checkDailySongLimitInline,
   logRequest,
   errorMessages,
   type LimitError,
@@ -202,7 +204,7 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
 // ─── Real API helpers ─────────────────────────────────────────────────────────
 
 const OPENAI_TIMEOUT_MS = 30_000;
-const MAX_REPLY_TOKENS = 800;
+const MAX_REPLY_TOKENS = 600;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -524,9 +526,21 @@ router.post(
     const parsed = DreamChatBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
+    // Check song search limit inline (only when user actually wants to search song info)
+    if (parsed.data.songSearch) {
+      const songLimitOk = await checkDailySongLimitInline(req);
+      if (!songLimitOk) {
+        res.status(429).json({
+          error: errorMessages.dailySongLimit,
+          code: "daily_song_limit",
+        } as unknown as LimitError);
+        return;
+      }
+    }
+
     const apiKey = process.env.OPENAI_API_KEY;
     const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
-    const { activeCharacter, history, userInput, imageUrl, musicContext } = parsed.data;
+    const { activeCharacter, history, userInput, imageUrl, musicContext, songSearch } = parsed.data;
 
     const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
     const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
@@ -590,6 +604,9 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
 
       const reply = await openaiChat(oaiMessages as { role: string; content: unknown }[], apiKey, model);
       await incrementChatCount(req);
+      if (songSearch) {
+        await incrementSongSearchCount(req);
+      }
       await logRequest(req, "dream-chat", true);
       res.json({ reply, isMock: false });
     } catch (err) {

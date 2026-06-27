@@ -216,6 +216,31 @@ export async function checkDailySongLimit(req: Request, res: Response, next: Nex
   next();
 }
 
+/** Inline version for route-level conditional checks (returns boolean instead of Express next). */
+export async function checkDailySongLimitInline(req: Request): Promise<boolean> {
+  const anonId = (req as Request & { anonymousId: string }).anonymousId;
+  if (!anonId) return true;
+
+  const today = getToday();
+  const existing = await db
+    .select()
+    .from(usageLimitsTable)
+    .where(
+      and(
+        eq(usageLimitsTable.anonymousId, anonId),
+        eq(usageLimitsTable.limitDate, today)
+      )
+    )
+    .limit(1);
+
+  const record = existing[0];
+  if (record && record.songSearchCount >= SONG_SEARCH_LIMIT_PER_DAY) {
+    return false;
+  }
+
+  return true;
+}
+
 export async function checkConcurrentRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) {

@@ -385,6 +385,8 @@ export const GetAiSettingsResponse = zod.object({
 /**
  * @summary Multimodal dream chat with character persona (text + optional image)
  */
+export const dreamChatBodySongSearchDefault = false;
+
 export const DreamChatBody = zod.object({
   "activeCharacter": zod.enum(['daoshen', 'muge', 'anuan']),
   "history": zod.array(zod.object({
@@ -402,7 +404,8 @@ export const DreamChatBody = zod.object({
   "type": zod.string().optional(),
   "mood": zod.string().optional(),
   "isPlaying": zod.boolean().optional()
-}).nullish()
+}).nullish(),
+  "songSearch": zod.boolean().default(dreamChatBodySongSearchDefault).describe('当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制')
 })
 
 export const DreamChatResponse = zod.object({

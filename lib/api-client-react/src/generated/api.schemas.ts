@@ -365,6 +365,8 @@ export interface DreamChatInput {
   imageUrl?: string | null;
   /** @nullable */
   musicContext?: MusicContext | null;
+  /** 当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制 */
+  songSearch?: boolean;
 }
 
 export interface DreamChatResult {
