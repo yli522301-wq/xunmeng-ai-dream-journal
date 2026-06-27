@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { db, dreamsTable } from "@workspace/db";
 import {
   CreateDreamBody,
@@ -9,10 +9,19 @@ import {
   GetDreamParams,
 } from "@workspace/api-zod";
 
+function getAnonId(req: unknown): string {
+  return (req as { anonymousId: string }).anonymousId;
+}
+
 const router: IRouter = Router();
 
-router.get("/dreams/stats/summary", async (_req, res): Promise<void> => {
-  const dreams = await db.select().from(dreamsTable);
+router.get("/dreams/stats/summary", async (req, res): Promise<void> => {
+  const anonId = getAnonId(req);
+  const dreams = await db
+    .select()
+    .from(dreamsTable)
+    .where(eq(dreamsTable.anonymousId, anonId));
+
   const moodBreakdown: Record<string, number> = {};
   const clarityBreakdown: Record<string, number> = {};
   let recurringCount = 0;
@@ -33,8 +42,13 @@ router.get("/dreams/stats/summary", async (_req, res): Promise<void> => {
   res.json({ total: dreams.length, moodBreakdown, clarityBreakdown, recurringCount, recentSymbols });
 });
 
-router.get("/dreams", async (_req, res): Promise<void> => {
-  const dreams = await db.select().from(dreamsTable).orderBy(desc(dreamsTable.createdAt));
+router.get("/dreams", async (req, res): Promise<void> => {
+  const anonId = getAnonId(req);
+  const dreams = await db
+    .select()
+    .from(dreamsTable)
+    .where(eq(dreamsTable.anonymousId, anonId))
+    .orderBy(desc(dreamsTable.createdAt));
   res.json(dreams);
 });
 
@@ -42,9 +56,12 @@ router.post("/dreams", async (req, res): Promise<void> => {
   const parsed = CreateDreamBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
+  const anonId = getAnonId(req);
+
   const [dream] = await db
     .insert(dreamsTable)
     .values({
+      anonymousId: anonId,
       title: parsed.data.title,
       content: parsed.data.content,
       mood: parsed.data.mood,
@@ -68,7 +85,11 @@ router.get("/dreams/:id", async (req, res): Promise<void> => {
   const params = GetDreamParams.safeParse({ id: rawId });
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  const [dream] = await db.select().from(dreamsTable).where(eq(dreamsTable.id, params.data.id));
+  const anonId = getAnonId(req);
+  const [dream] = await db
+    .select()
+    .from(dreamsTable)
+    .where(and(eq(dreamsTable.id, params.data.id), eq(dreamsTable.anonymousId, anonId)));
   if (!dream) { res.status(404).json({ error: "Dream not found" }); return; }
   res.json(dream);
 });
@@ -95,7 +116,12 @@ router.patch("/dreams/:id", async (req, res): Promise<void> => {
   if (parsed.data.companionReply !== undefined) u.companionReply = parsed.data.companionReply;
   if (parsed.data.imageUrl !== undefined) u.imageUrl = parsed.data.imageUrl;
 
-  const [dream] = await db.update(dreamsTable).set(u).where(eq(dreamsTable.id, params.data.id)).returning();
+  const anonId = getAnonId(req);
+  const [dream] = await db
+    .update(dreamsTable)
+    .set(u)
+    .where(and(eq(dreamsTable.id, params.data.id), eq(dreamsTable.anonymousId, anonId)))
+    .returning();
   if (!dream) { res.status(404).json({ error: "Dream not found" }); return; }
   res.json(dream);
 });
@@ -105,7 +131,13 @@ router.delete("/dreams/:id", async (req, res): Promise<void> => {
   const params = DeleteDreamParams.safeParse({ id: rawId });
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  await db.delete(dreamsTable).where(eq(dreamsTable.id, params.data.id));
+  const anonId = getAnonId(req);
+  const deleted = await db
+    .delete(dreamsTable)
+    .where(and(eq(dreamsTable.id, params.data.id), eq(dreamsTable.anonymousId, anonId)))
+    .returning();
+
+  if (deleted.length === 0) { res.status(404).json({ error: "Dream not found" }); return; }
   res.sendStatus(204);
 });
 

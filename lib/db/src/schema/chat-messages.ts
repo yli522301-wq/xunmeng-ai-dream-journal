@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const chatMessagesTable = pgTable("chat_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
+  anonymousId: text("anonymous_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
   characterId: uuid("character_id"),

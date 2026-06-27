@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const charactersTable = pgTable("characters", {
   id: uuid("id").primaryKey().defaultRandom(),
+  anonymousId: text("anonymous_id").notNull(),
   name: text("name").notNull(),
   avatar: text("avatar"),
   role: text("role").notNull(),

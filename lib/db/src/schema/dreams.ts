@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const dreamsTable = pgTable("dreams", {
   id: uuid("id").primaryKey().defaultRandom(),
+  anonymousId: text("anonymous_id").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
   mood: text("mood").notNull(),

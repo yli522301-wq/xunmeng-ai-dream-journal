@@ -19,6 +19,10 @@ import {
   type LimitError,
 } from "../middleware/rate-limit";
 
+function getAnonId(req: unknown): string {
+  return (req as { anonymousId: string }).anonymousId;
+}
+
 const router: IRouter = Router();
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
