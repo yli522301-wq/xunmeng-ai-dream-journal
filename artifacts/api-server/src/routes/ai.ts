@@ -237,11 +237,17 @@ async function openaiChat(
  * Call OpenAI Responses API with web_search tool.
  * Returns the assistant's text reply and whether a web search was actually triggered.
  */
+interface SearchSource {
+  name: string;
+  title: string;
+  url: string;
+}
+
 async function openaiSearch(
   input: { role: string; content: string }[],
   apiKey: string,
   model: string,
-): Promise<{ text: string; searched: boolean }> {
+): Promise<{ text: string; searched: boolean; sources: SearchSource[] }> {
   const resp = await withTimeout(
     fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -257,17 +263,46 @@ async function openaiSearch(
     OPENAI_TIMEOUT_MS
   );
   if (!resp.ok) throw new Error(`OpenAI search ${resp.status}`);
-  const json = await resp.json() as {
-    output?: Array<
-      | { type: "web_search_call"; status: string; action?: { queries?: string[] } }
-      | { type: "message"; content?: Array<{ text?: string }> }
-    >;
-    usage?: { total_tokens?: number };
-  };
-  const searched = (json.output ?? []).some(o => o.type === "web_search_call");
-  const msg = (json.output ?? []).find(o => o.type === "message");
+  const json = await resp.json() as any;
+  const searched = (json.output ?? []).some((o: any) => o.type === "web_search_call");
+  const msg = (json.output ?? []).find((o: any) => o.type === "message");
   const text = msg?.content?.[0]?.text ?? "";
-  return { text, searched };
+
+  // Extract sources from message.content annotations (url_citation type)
+  const sources: SearchSource[] = [];
+  const seenUrls = new Set<string>();
+  const annotations = msg?.content?.[0]?.annotations ?? [];
+  for (const ann of annotations) {
+    if (ann.type === "url_citation" && ann.url) {
+      const url = ann.url as string;
+      if (seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      const title = (ann.title as string | undefined) ?? "Source";
+      sources.push({
+        name: new URL(url).hostname.replace(/^www\./, ""),
+        title,
+        url,
+      });
+    }
+  }
+
+  // Clean the text by removing embedded citation markers
+  // OpenAI inserts citations like "text ([site.com](url))" in the text.
+  let cleanText = text
+    // Remove markdown links: [text](url)
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove bare URLs
+    .replace(/https?:\/\/[^\s\)]+/g, "")
+    // Remove citation markers like ([site.com]) or ([1]) or (en.wikipedia.org)
+    .replace(/\s*\(\[[^\]]+\]\)/g, "")
+    .replace(/\s*\[\d+\]/g, "")
+    .replace(/\s*\([a-zA-Z0-9.-]+\.(?:com|org|net|io|cn|tw|co\.\w{2})\)/g, "")
+    // Clean up double spaces and extra newlines
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/  +/g, " ")
+    .trim();
+
+  return { text: cleanText, searched, sources };
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -637,20 +672,24 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
         const fileName = musicContext?.fileName || "";
         req.log.info({ songSearch: true, title, artist, fileName }, "dream-chat: song search branch");
 
+        const searchSystemPrompt = sysPrompt + musicNote + "\n\n" +
+          "You are now answering a factual question about the current song. Use web search to find accurate, verifiable information. Reply in English.\n\n" +
+          "Rules:\n" +
+          "- Prioritize verifiable public sources.\n" +
+          "- Distinguish between confirmed facts and online interpretations.\n" +
+          "- Do not invent the artist's motivations.\n" +
+          "- If you cannot find reliable information, say so clearly: \"I couldn't find reliable information about this just now.\"\n" +
+          "- If there are multiple versions or artists with similar names, ask the user to confirm the exact artist or version first.\n" +
+          "- Keep the reply natural and concise (2-4 short paragraphs max).\n" +
+          "- After explaining the song story, naturally return to the user's own feelings if relevant.\n" +
+          "- Never say \"I can't dive into the specific story, but songs like this usually...\" — if search fails, be honest.\n" +
+          "- NEVER include Markdown links like [text](url) in your reply.\n" +
+          "- NEVER include raw URLs like https://... in your reply.\n" +
+          "- NEVER include source citations like ([site.com](url)) or ([1]) in your reply.\n" +
+          "- Just tell the user the facts naturally, as if you are telling a friend about a song. The system will handle sources separately.";
+
         const searchInput: { role: string; content: string }[] = [
-          { role: "system", content: sysPrompt + musicNote + `
-
-You are now answering a factual question about the current song. Use web search to find accurate, verifiable information. Reply in English.
-
-Rules:
-- Prioritize verifiable public sources.
-- Distinguish between confirmed facts and online interpretations.
-- Do not invent the artist's motivations.
-- If you cannot find reliable information, say so clearly: "I couldn't find reliable information about this just now."
-- If there are multiple versions or artists with similar names, ask the user to confirm the exact artist or version first.
-- Keep the reply natural and concise (2-4 short paragraphs max).
-- After explaining the song story, naturally return to the user's own feelings if relevant.
-- Never say "I can't dive into the specific story, but songs like this usually..." — if search fails, be honest.` },
+          { role: "system", content: searchSystemPrompt },
           ...history.map(item => ({
             role: item.role,
             content: item.role === "user" ? item.content : item.content,
@@ -663,11 +702,11 @@ Rules:
 
         const searchResult = await openaiSearch(searchInput, apiKey, model);
         reply = searchResult.text;
-        req.log.info({ searched: searchResult.searched, hasReply: !!reply }, "dream-chat: song search result");
+        req.log.info({ searched: searchResult.searched, hasReply: !!reply, sourceCount: searchResult.sources.length }, "dream-chat: song search result");
         await incrementChatCount(req);
         await incrementSongSearchCount(req);
         await logRequest(req, "dream-chat", true);
-        res.json({ reply, isMock: false });
+        res.json({ reply, isMock: false, sources: searchResult.sources });
         return;
       }
 

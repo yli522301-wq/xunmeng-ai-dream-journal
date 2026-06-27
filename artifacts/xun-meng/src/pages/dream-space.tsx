@@ -34,6 +34,10 @@ export interface ChatMessage {
   audioDuration?: number;
   transcription?: string;
   timestamp: string;
+  /** Sources from web_search, only present for song search replies */
+  sources?: Array<{ name: string; title: string; url: string }>;
+  /** Cleaned display text (no URLs, markdown links, citations) for visual rendering */
+  displayContent?: string;
 }
 
 export interface MusicContext {
@@ -196,6 +200,42 @@ function stripCharPrefix(text: string): string {
     .replace(/^(\[Unknown\]|\[unknown\]|\[\s*\])\s*[:：]?\s*/, "")
     .replace(/^(\[\u963f\u6696\]|\[\u66ae\u6b4c\]|\[\u5c9b\u6df1\]|\[Anuan\]|\[Muge\]|\[Daoshen\])\s*[:：]?\s*/i, "")
     .replace(/^(\u963f\u6696|\u66ae\u6b4c|\u5c9b\u6df1|Anuan|Muge|Daoshen|Unknown|unknown)\s*[:：]\s*/, "")
+    .trim();
+}
+
+/**
+ * Clean a web search reply for display: remove markdown links, URLs,
+ * source citations, and technical markers while preserving natural text.
+ */
+function cleanSearchReply(text: string): string {
+  return text
+    // Remove markdown links: [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove bare URLs
+    .replace(/https?:\/\/[^\s\)]+/g, "")
+    // Remove citation markers like ([site.com]) or ([1])
+    .replace(/\s*\(\[[^\]]+\]\)/g, "")
+    .replace(/\s*\[\d+\]/g, "")
+    // Remove utm_source and other query params that may appear in text
+    .replace(/\?utm_source=[^\s]+/g, "")
+    .replace(/\?ref=[^\s]+/g, "")
+    // Remove horizontal rule separators
+    .replace(/\n---\n?/g, "\n")
+    // Remove empty bullet points
+    .replace(/\n\s*[-\*]\s*$/gm, "")
+    // Clean up double spaces and extra newlines
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/  +/g, " ")
+    .trim();
+}
+
+/** Clean text for TTS: only spoken words, no URLs, links, or markers. */
+function cleanForTts(text: string): string {
+  return cleanSearchReply(text)
+    // Remove any remaining bracketed references
+    .replace(/\([^)]*\b(?:source|sources|ref|link|url)\b[^)]*\)/gi, "")
+    .replace(/\n{2,}/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -845,6 +885,7 @@ export default function DreamSpace() {
     try {
       let replyContent: string;
       let usedMock = false;
+      let apiSources: Array<{ name: string; title: string; url: string }> | undefined;
 
       if (!settings?.hasApiKey) {
         // No API key — use local character-specific mock
@@ -887,6 +928,7 @@ export default function DreamSpace() {
             },
           });
           replyContent = stripCharPrefix(res.reply);
+          apiSources = (res as any)?.sources ?? undefined;
           if (res.isMock) usedMock = true;
         } catch (err) {
           // Check for structured limit errors from backend
@@ -911,7 +953,11 @@ export default function DreamSpace() {
         toast({ title: "AI 暂时没有接通，已切换为演示回复。" });
       }
 
-      const reply: ChatMessage = { id: genId(), role: activeKey, content: replyContent, timestamp: nowTime() };
+      const reply: ChatMessage = {
+        id: genId(), role: activeKey, content: replyContent, timestamp: nowTime(),
+        sources: apiSources,
+        displayContent: cleanSearchReply(replyContent),
+      };
       setMessages(prev => [...prev, reply]);
 
       // Prepare empty display area; full text goes to chat history only.
@@ -922,15 +968,18 @@ export default function DreamSpace() {
 
       // Defer typewriter until TTS starts playing so text and voice are in sync.
       // Speed calibrated to audio duration. 3-second hard fallback in case TTS hangs.
+      const displayContent = cleanSearchReply(replyContent);
+      const ttsContent = cleanForTts(replyContent);
       const fallbackTimer = setTimeout(() => {
         if (typingStartedRef.current !== reply.id) {
-          startTypewriter(reply.id, replyContent);
+          startTypewriter(reply.id, displayContent);
         }
       }, 3000);
-      void playTtsSafe(reply.id, replyContent, activeKey, (audioDuration: number) => {
+
+      void playTtsSafe(reply.id, ttsContent, activeKey, (audioDuration: number) => {
         clearTimeout(fallbackTimer);
-        const msPerChar = Math.max(30, Math.min(110, (audioDuration * 1000) / replyContent.length));
-        startTypewriter(reply.id, replyContent, msPerChar);
+        const msPerChar = Math.max(30, Math.min(110, (audioDuration * 1000) / displayContent.length));
+        startTypewriter(reply.id, displayContent, msPerChar);
       });
     } catch {
       toast({ title: "感应失败，请重试", variant: "destructive" });
@@ -1473,7 +1522,7 @@ export default function DreamSpace() {
                 }}>
                 {(() => {
                   const isTyping = typingMsgId === displayReply.id;
-                  const shown = isTyping ? typingContent : displayReply.content;
+                  const shown = isTyping ? typingContent : (displayReply.displayContent ?? displayReply.content);
                   return (
                     <p className="text-[14px] leading-[1.8] whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.72)" }}>
                       {shown}
@@ -1491,6 +1540,11 @@ export default function DreamSpace() {
                 <p className="mt-3 text-[9px] tracking-[0.22em]" style={{ color: "rgba(255,255,255,0.16)" }}>
                   {displayReply.timestamp}
                 </p>
+                {displayReply.sources && displayReply.sources.length > 0 && (
+                  <p className="mt-1 text-[8px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.12)" }}>
+                    <span style={{ fontStyle: "italic" }}>来源 / {displayReply.sources.slice(0, 4).map(s => s.name).join(", ")}</span>
+                  </p>
+                )}
               </motion.div>
             ) : (
               <motion.div

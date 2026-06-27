@@ -369,9 +369,17 @@ export interface DreamChatInput {
   songSearch?: boolean;
 }
 
+export interface SearchSource {
+  name: string;
+  title: string;
+  url: string;
+}
+
 export interface DreamChatResult {
   reply: string;
   isMock: boolean;
+  /** Search sources from web_search, present only when song search was triggered */
+  sources?: SearchSource[] | null;
 }
 
 export type GetChatHistoryParams = {

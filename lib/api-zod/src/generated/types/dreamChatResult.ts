@@ -5,8 +5,11 @@
  * 巡梦 Dream Journal API
  * OpenAPI spec version: 0.2.0
  */
+import type { SearchSource } from './searchSource';
 
 export interface DreamChatResult {
   reply: string;
   isMock: boolean;
+  /** Search sources from web_search, present only when song search was triggered */
+  sources?: SearchSource[] | null;
 }

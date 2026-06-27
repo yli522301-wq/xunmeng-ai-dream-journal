@@ -410,7 +410,12 @@ export const DreamChatBody = zod.object({
 
 export const DreamChatResponse = zod.object({
   "reply": zod.string(),
-  "isMock": zod.boolean()
+  "isMock": zod.boolean(),
+  "sources": zod.array(zod.object({
+  "name": zod.string(),
+  "title": zod.string(),
+  "url": zod.string()
+})).nullish().describe('Search sources from web_search, present only when song search was triggered')
 })
 
 

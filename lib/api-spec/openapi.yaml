@@ -894,6 +894,20 @@ components:
           description: 当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制
           default: false
 
+    SearchSource:
+      type: object
+      required:
+        - name
+        - title
+        - url
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+
     DreamChatResult:
       type: object
       required:
@@ -904,3 +918,9 @@ components:
           type: string
         isMock:
           type: boolean
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchSource"
+          description: Search sources from web_search, present only when song search was triggered
+          nullable: true
