@@ -497,14 +497,13 @@ export default function DreamLocalDetail() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              const last8 = dream.messages.slice(-8);
               const resume = {
                 dreamId: dream.id,
-                parentDreamId: dream.parentDreamId ?? dream.id,
                 title: dream.title,
                 summary: dream.summary,
                 activeCharacter: dream.activeCharacter,
-                messages: last8,
+                messages: dream.messages,
+                musicSnapshot: dream.musicSnapshot,
               };
               localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(resume));
               setLocation("/");

@@ -262,8 +262,8 @@ export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange,
     setAvatarUploadTarget(null);
   };
 
-  // Count turns (user messages)
-  const turnCount = messages.filter(m => m.role === "user").length;
+  // Count turns (user messages, excluding hint dividers)
+  const turnCount = messages.filter(m => m.role === "user" && m.type !== "hint").length;
 
   return (
     <div className="w-full max-w-md mx-auto px-5 flex-shrink-0 relative" style={{ zIndex: 25 }}>
@@ -335,7 +335,16 @@ export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange,
                   </p>
                 </div>
               ) : (
-                messages.map((msg, i) => (
+                messages.map((msg, i) =>
+                  msg.type === "hint" ? (
+                    <div key={msg.id ?? i} className="flex items-center gap-2 py-0.5">
+                      <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+                      <span className="text-[9px] tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.22)" }}>
+                        {msg.content}
+                      </span>
+                      <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+                    </div>
+                  ) : (
                   <MessageBubble
                     key={msg.id ?? i}
                     msg={msg}
@@ -348,7 +357,8 @@ export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange,
                     typingMsgId={typingMsgId}
                     typingContent={typingContent}
                   />
-                ))
+                  )
+                )
               )}
             </div>
           </motion.div>

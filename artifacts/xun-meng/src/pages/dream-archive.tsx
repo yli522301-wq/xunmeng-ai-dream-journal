@@ -22,12 +22,12 @@ export interface SavedDream {
   id: string;
   title: string;
   createdAt: string;
+  updatedAt?: string;
   activeCharacter: CharKey;
   messages: ChatMessage[];
   summary: string;
   mood: string;
   coverImage?: string;
-  parentDreamId?: string;
   musicSnapshot?: MusicSnapshot;
 }
 

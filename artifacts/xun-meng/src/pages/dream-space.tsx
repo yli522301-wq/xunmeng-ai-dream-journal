@@ -25,7 +25,7 @@ const FALLBACK_TRANSCRIPT = "我梦到自己一直在赶路，但怎么都赶不
 export interface ChatMessage {
   id: string;
   role: "user" | CharKey;
-  type?: "text" | "image" | "audio";
+  type?: "text" | "image" | "audio" | "hint";
   content: string;
   imageUrl?: string;
   thumbnailUrl?: string;
@@ -341,8 +341,9 @@ export default function DreamSpace() {
   const [musicContext, setMusicContext] = useState<MusicContext | null>(null);
   const musicContextRef = useRef<MusicContext | null>(null);
   const [saveMusicSnapshot, setSaveMusicSnapshot] = useState(true);
-  const resumeParentIdRef = useRef<string | undefined>(undefined);
-  const resumeInfoRef = useRef<{ title: string; summary: string } | null>(null);
+  const [editingDreamId, setEditingDreamId] = useState<string | null>(null);
+  const [dreamMode, setDreamMode] = useState<"new" | "continue">("new");
+  const resumeSummaryRef = useRef<{ title: string; summary: string } | null>(null);
 
   // ── ElevenLabs TTS state ──────────────────────────────────────────────────
   const [ttsEnabled, setTtsEnabledState] = useState(() => {
@@ -541,22 +542,28 @@ export default function DreamSpace() {
       localStorage.removeItem(RESUME_STORAGE_KEY);
       const resume = JSON.parse(raw) as {
         dreamId: string;
-        parentDreamId: string;
         title: string;
         summary: string;
         activeCharacter: CharKey;
         messages: ChatMessage[];
+        musicSnapshot?: MusicSnapshot;
       };
       const key: CharKey = resume.activeCharacter ?? "anuan";
       saveCharKey(key);
       setActiveKey(key);
-      setMessages(resume.messages);
+      // Append an inline divider hint at the boundary between restored and new messages
+      const hintMsg: ChatMessage = {
+        id: `hint-${resume.dreamId}`,
+        role: "user",
+        type: "hint",
+        content: "已回到这段回忆",
+        timestamp: nowTime(),
+      };
+      setMessages([...resume.messages, hintMsg]);
+      setEditingDreamId(resume.dreamId);
+      setDreamMode("continue");
+      resumeSummaryRef.current = { title: resume.title, summary: resume.summary };
       setResumeActive(true);
-      resumeParentIdRef.current = resume.parentDreamId;
-      resumeInfoRef.current = { title: resume.title, summary: resume.summary };
-      setTimeout(() => {
-        toast({ title: "已带着这段回忆回来" });
-      }, 400);
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -944,18 +951,18 @@ export default function DreamSpace() {
         usedMock = true;
       } else {
         try {
-          // Build history: last ≤12 turns before the current message
-          const historyItems = updatedMsgs.slice(-13, -1).map(m => ({
+          // Build history: exclude hint messages; last ≤20 messages (≈10 turns) for AI context
+          const aiMsgs = updatedMsgs.filter(m => m.type !== "hint");
+          const historyItems = aiMsgs.slice(-21, -1).map(m => ({
             role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
             content: m.role === "user"
               ? m.content
               : `[${CHAR_MAP[m.role as CharKey]?.name ?? m.role}] ${m.content}`,
             imageUrl: m.imageUrl ?? null,
           }));
-          // Prepend resume context as system hint on first message after continuing
-          if (resumeInfoRef.current) {
-            const info = resumeInfoRef.current;
-            resumeInfoRef.current = null;
+          // In continue mode, always prepend dream summary for consistent AI context
+          if (resumeSummaryRef.current) {
+            const info = resumeSummaryRef.current;
             historyItems.unshift({
               role: "assistant",
               content: `[续写上下文] 这是梦境《${info.title}》的延续。梦境摘要：${info.summary}`,
@@ -1222,7 +1229,7 @@ export default function DreamSpace() {
 
   // ── Save dream ─────────────────────────────────────────────────────────────
   const handleSaveDream = () => {
-    const userMessages = messages.filter(m => m.role === "user");
+    const userMessages = messages.filter(m => m.role === "user" && m.type !== "hint");
     if (userMessages.length === 0) {
       toast({ title: "先说一点梦的内容，再保存。" });
       return;
@@ -1232,27 +1239,28 @@ export default function DreamSpace() {
 
   const confirmSave = () => {
     setShowSaveConfirm(false);
-    const userMessages = messages.filter(m => m.role === "user");
+
+    // Exclude internal hint messages from everything stored or computed
+    const storableMsgs = messages.filter(m => m.type !== "hint");
+    const userMessages = storableMsgs.filter(m => m.role === "user");
+    if (userMessages.length === 0) return;
+
     const firstUser = userMessages[0].content;
     const title = firstUser === "[图片]" || firstUser === ""
       ? "一段无言的梦"
       : firstUser.slice(0, 14) + (firstUser.length > 14 ? "…" : "");
-    const lastAiMsg = [...messages].reverse().find(m => m.role !== "user");
+    const lastAiMsg = [...storableMsgs].reverse().find(m => m.role !== "user");
     const summary = lastAiMsg?.content ?? firstUser;
 
-    // coverImage: 600 px cardCover from first user image (highest quality, for
-    // gallery / starmap / corridor display).
-    const coverImage = messages.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
+    // coverImage: 600 px cardCover from first user image
+    const coverImage = storableMsgs.find(m => m.role === "user" && m.imageUrl)?.imageUrl;
 
-    // Strip audio blobs (keep type/duration/transcription for voice card).
-    // For image messages swap imageUrl → thumbnailUrl (240 px) so that only a
-    // small thumbnail is persisted per message; the 600 px version lives only
-    // in coverImage above.
-    const messagesForStorage = messages.map(m => {
+    // Strip audio blobs; swap imageUrl → thumbnailUrl (240 px) in messages
+    const messagesForStorage = storableMsgs.map(m => {
       const { audioUrl: _a, thumbnailUrl: thumb, ...rest } =
         m as ChatMessage & { audioUrl?: string; thumbnailUrl?: string };
       if (rest.type === "image" && thumb) {
-        return { ...rest, imageUrl: thumb };   // 240 px thumbnail in messages
+        return { ...rest, imageUrl: thumb };
       }
       return rest;
     });
@@ -1287,6 +1295,59 @@ export default function DreamSpace() {
       return null;
     })();
 
+    let existing: unknown[] = [];
+    try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
+
+    if (dreamMode === "continue" && editingDreamId) {
+      // ── Update the existing dream in-place ────────────────────────────────
+      const updatedAt = new Date().toISOString();
+      const updatedList = (existing as Array<Record<string, unknown>>).map(d =>
+        (d as { id?: string }).id === editingDreamId
+          ? {
+              ...d,
+              messages: messagesForStorage,
+              summary,
+              updatedAt,
+              ...(musicSnap ? { musicSnapshot: musicSnap } : {}),
+            }
+          : d
+      );
+      const doNavigate = () => {
+        setEditingDreamId(null);
+        setDreamMode("new");
+        resumeSummaryRef.current = null;
+        setLocation("/archive");
+      };
+      // Tier 1
+      try {
+        localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(updatedList));
+        doNavigate();
+        return;
+      } catch { /* quota exceeded */ }
+      // Tier 2: strip images from the updated entry
+      try {
+        const lite = (updatedList as Array<Record<string, unknown>>).map(d =>
+          (d as { id?: string }).id === editingDreamId
+            ? {
+                ...d,
+                coverImage: undefined,
+                messages: messagesForStorage.map(m =>
+                  m.type === "image" ? { ...m, imageUrl: undefined } : m
+                ),
+              }
+            : d
+        );
+        localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(lite));
+        toast({ title: "图片较大，已为你保存压缩版梦境。" });
+        doNavigate();
+        return;
+      } catch {
+        toast({ title: "保存失败，请清除部分旧梦境后重试。", variant: "destructive" });
+      }
+      return;
+    }
+
+    // ── New dream ──────────────────────────────────────────────────────────
     const dream = {
       id: genId(),
       title,
@@ -1297,22 +1358,17 @@ export default function DreamSpace() {
       summary,
       mood: "朦胧",
       coverImage,
-      parentDreamId: resumeParentIdRef.current,
       musicSnapshot: musicSnap ?? undefined,
     };
-    resumeParentIdRef.current = undefined;
 
-    let existing: unknown[] = [];
-    try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
-
-    // ── Tier 1: thumbnails in messages + 600 px coverImage ────────────────────
+    // Tier 1: thumbnails in messages + 600 px coverImage
     try {
       localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream]));
       setLocation("/archive");
       return;
     } catch { /* quota exceeded — fall through */ }
 
-    // ── Tier 2: drop coverImage (messages already have tiny thumbnails) ───────
+    // Tier 2: drop coverImage
     try {
       localStorage.setItem(DREAMS_STORAGE_KEY,
         JSON.stringify([...existing, { ...dream, coverImage: undefined }]));
@@ -1321,7 +1377,7 @@ export default function DreamSpace() {
       return;
     } catch { /* still failing — fall through */ }
 
-    // ── Tier 3: strip all images; text + audio transcriptions only ────────────
+    // Tier 3: strip all images
     const dream3 = {
       ...dream,
       coverImage: undefined,
@@ -1411,6 +1467,26 @@ export default function DreamSpace() {
         </div>
 
         <div className="flex items-center gap-3">
+          {dreamMode === "continue" && (
+            <button
+              onClick={() => {
+                setMessages([]);
+                setEditingDreamId(null);
+                setDreamMode("new");
+                resumeSummaryRef.current = null;
+                setResumeActive(false);
+              }}
+              className="text-[10px] tracking-wider transition-colors px-2 py-0.5 rounded-full"
+              style={{
+                color: `hsl(${hsl} / 0.55)`,
+                border: `1px solid hsl(${hsl} / 0.20)`,
+                background: `hsl(${hsl} / 0.06)`,
+              }}
+              title="退出续写，开始新对话"
+            >
+              新建
+            </button>
+          )}
           <button
             onClick={() => setLocation("/archive")}
             className="transition-opacity"
@@ -2081,10 +2157,13 @@ export default function DreamSpace() {
                     className="text-[15px] font-serif tracking-wide mb-2.5 leading-snug"
                     style={{ color: "rgba(255,255,255,0.88)" }}
                   >
-                    要把这段梦收入档案吗？
+                    {dreamMode === "continue" ? "要更新这段梦境吗？" : "要把这段梦收入档案吗？"}
                   </h3>
                   <p className="text-[12px] leading-relaxed" style={{ color: "rgba(255,255,255,0.26)" }}>
-                    你可以保存它，也可以让它<br />只停留在这次对话里。
+                    {dreamMode === "continue"
+                      ? <>新增的对话会追加到<br />原来的梦境记录里。</>
+                      : <>你可以保存它，也可以让它<br />只停留在这次对话里。</>
+                    }
                   </p>
                 </div>
                 {/* Music save toggle — only shown when music is active */}
@@ -2121,7 +2200,7 @@ export default function DreamSpace() {
                     whileHover={{ opacity: 0.88 }}
                     whileTap={{ scale: 0.97 }}
                   >
-                    收入档案
+                    {dreamMode === "continue" ? "更新梦境" : "收入档案"}
                   </motion.button>
                   <button
                     onClick={() => setShowSaveConfirm(false)}
