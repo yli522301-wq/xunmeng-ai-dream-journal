@@ -9,7 +9,6 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { useSessionNs, getDreamsKey } from "@/hooks/use-session-ns";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, LayoutList, Sparkles } from "lucide-react";
 import type { ChatMessage, CharKey } from "@/pages/dream-space";
@@ -71,17 +70,14 @@ export default function DreamCorridor() {
   const [, setLocation] = useLocation();
   const [allDreams, setAllDreams] = useState<SavedDream[]>([]);
   const [intro, setIntro] = useState(true);
-  const ns = useSessionNs();
-  const dreamsKey = getDreamsKey(ns);
-
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(dreamsKey);
+      const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
       setAllDreams(raw ? [...JSON.parse(raw) as SavedDream[]].reverse() : []);
     } catch { setAllDreams([]); }
     const t = setTimeout(() => setIntro(false), 400);
     return () => clearTimeout(t);
-  }, [dreamsKey]);
+  }, []);
 
   const galleryItems = useMemo(() => {
     // Expand each dream into multiple gallery items:

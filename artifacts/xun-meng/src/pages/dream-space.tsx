@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useSessionNs, getDreamsKey, getResumeKey } from "@/hooks/use-session-ns";
 import {
   useGetActiveCharacter, useListCharacters, useActivateCharacter,
   useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
@@ -293,10 +292,6 @@ function saveAvatars(a: Record<CharKey, string | null>) {
 export default function DreamSpace() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const ns = useSessionNs();
-  const dreamsKey = getDreamsKey(ns);
-  const resumeKey = getResumeKey(ns);
-
   const { data: activeChar, refetch: refetchActive } = useGetActiveCharacter();
   const { data: characters } = useListCharacters();
   const { data: settings }   = useGetAiSettings();
@@ -1214,18 +1209,18 @@ export default function DreamSpace() {
     };
 
     let existing: unknown[] = [];
-    try { existing = JSON.parse(localStorage.getItem(dreamsKey) ?? "[]"); } catch { /* ignore */ }
+    try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
 
     // ── Tier 1: thumbnails in messages + 600 px coverImage ────────────────────
     try {
-      localStorage.setItem(dreamsKey, JSON.stringify([...existing, dream]));
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream]));
       setLocation("/archive");
       return;
     } catch { /* quota exceeded — fall through */ }
 
     // ── Tier 2: drop coverImage (messages already have tiny thumbnails) ───────
     try {
-      localStorage.setItem(dreamsKey,
+      localStorage.setItem(DREAMS_STORAGE_KEY,
         JSON.stringify([...existing, { ...dream, coverImage: undefined }]));
       toast({ title: "图片较大，已为你保存压缩版梦境。" });
       setLocation("/archive");
@@ -1241,7 +1236,7 @@ export default function DreamSpace() {
       ),
     };
     try {
-      localStorage.setItem(dreamsKey, JSON.stringify([...existing, dream3]));
+      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify([...existing, dream3]));
       toast({ title: "图片较大，已为你保存梦境文字版本。" });
       setLocation("/archive");
     } catch {

@@ -6,7 +6,6 @@
  */
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useSessionNs, getDreamsKey, getResumeKey } from "@/hooks/use-session-ns";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Sparkles, Mic, X } from "lucide-react";
 import { DREAMS_STORAGE_KEY, type SavedDream, CS } from "@/pages/dream-archive";
@@ -257,20 +256,16 @@ export default function DreamMap() {
   const [activeOrb, setActiveOrb] = useState<{
     orb: OrbData; cardX: number; cardY: number;
   } | null>(null);
-  const ns = useSessionNs();
-  const dreamsKey = getDreamsKey(ns);
-  const resumeKey = getResumeKey(ns);
-
   const containerRef = useRef<HTMLDivElement>(null);
   const spotlightRef = useRef<HTMLDivElement>(null);
 
   // Load saved dreams
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(dreamsKey);
+      const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
       setAllDreams(raw ? [...JSON.parse(raw) as SavedDream[]].reverse() : []);
     } catch { setAllDreams([]); }
-  }, [dreamsKey]);
+  }, []);
 
   const orbs = useMemo(() => computeLayout(allDreams), [allDreams]);
 
@@ -390,9 +385,9 @@ export default function DreamMap() {
 
   // ── Resume dream → Dream Space ──
   const handleResume = useCallback((dreamId: string) => {
-    try { localStorage.setItem(resumeKey, dreamId); } catch {}
+    try { localStorage.setItem("xm-resume-dream", dreamId); } catch {}
     setLocation("/");
-  }, [setLocation, resumeKey]);
+  }, [setLocation]);
 
   return (
     <div

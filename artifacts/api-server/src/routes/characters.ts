@@ -14,31 +14,65 @@ function getAnonId(req: unknown): string {
   return (req as { anonymousId: string }).anonymousId;
 }
 
-const DEFAULT_ANUAN = {
-  name: "阿暖",
-  role: "梦境记录与回忆陪伴者",
-  personality: ["温暖", "陪伴", "情绪敏感", "不说教", "简洁"],
-  speakingStyle: "温暖陪伴型",
-  relationship: "梦境陪伴者",
-  language: "zh" as const,
-  voiceType: "中性清澈",
-  systemPrompt: "你是阿暖，温暖陪伴型梦境朋友。先接住情绪再慢慢分析，语气亲近柔和，生活化。",
-  isActive: true,
-};
+const DEFAULT_CHARACTERS: Array<{
+  name: string; role: string; personality: string[];
+  speakingStyle: string; relationship: string; language: "zh" | "en";
+  voiceType: string; systemPrompt: string; isActive: boolean;
+}> = [
+  {
+    name: "岛深",
+    role: "梦境理性解析者",
+    personality: ["冷静", "克制", "结构化", "洞察力强", "略带锋利"],
+    speakingStyle: "冷静分析型",
+    relationship: "梦境解析者",
+    language: "zh",
+    voiceType: "低沉沉稳",
+    systemPrompt: "你是岛深，梦境的理性解析者。风格冷静克制，结构化，擅长分析象征意象和潜意识模式，语气略带锋利。你认为暮歌太感性、阿暖太直白，但保持克制的尊重。三位解析者在共同讨论同一个梦。",
+    isActive: false,
+  },
+  {
+    name: "暮歌",
+    role: "梦境诗意叙述者",
+    personality: ["温柔", "文学化", "意象丰富", "情绪细腻", "充满诗意"],
+    speakingStyle: "诗意叙述型",
+    relationship: "梦境叙述者",
+    language: "zh",
+    voiceType: "柔和清亮",
+    systemPrompt: "你是暮歌，梦境的诗意叙述者。语言温柔文学化，擅长把梦境转化为有情绪流动的故事，关注意象的色彩与运动。你认为岛深过于理性、阿暖过于直白，但态度温柔。三位解析者在共同讨论同一个梦。",
+    isActive: false,
+  },
+  {
+    name: "阿暖",
+    role: "梦境记录与回忆陪伴者",
+    personality: ["温暖", "陪伴", "情绪敏感", "不说教", "简洁"],
+    speakingStyle: "温暖陪伴型",
+    relationship: "梦境陪伴者",
+    language: "zh",
+    voiceType: "中性清澈",
+    systemPrompt: "你是阿暖，温暖陪伴型梦境朋友。先接住情绪再慢慢分析，语气亲近柔和，生活化。你觉得岛深和暮歌说得太复杂，用户需要先被接住情绪。三位解析者在共同讨论同一个梦。",
+    isActive: true,
+  },
+];
 
-async function seedDefaultCharacter(anonId: string) {
-  const [existing] = await db
+async function seedDefaultCharacters(anonId: string) {
+  const existing = await db
+    .select({ name: charactersTable.name })
+    .from(charactersTable)
+    .where(eq(charactersTable.anonymousId, anonId));
+
+  const existingNames = new Set(existing.map(c => c.name));
+  const missing = DEFAULT_CHARACTERS.filter(c => !existingNames.has(c.name));
+
+  for (const char of missing) {
+    await db.insert(charactersTable).values({ anonymousId: anonId, ...char });
+  }
+
+  const [first] = await db
     .select()
     .from(charactersTable)
-    .where(eq(charactersTable.anonymousId, anonId))
+    .where(and(eq(charactersTable.anonymousId, anonId), eq(charactersTable.isActive, true)))
     .limit(1);
-  if (existing) return existing;
-
-  const [character] = await db
-    .insert(charactersTable)
-    .values({ anonymousId: anonId, ...DEFAULT_ANUAN })
-    .returning();
-  return character;
+  return first;
 }
 
 const router: IRouter = Router();
@@ -56,8 +90,8 @@ router.get("/characters/active", async (req, res): Promise<void> => {
     return;
   }
 
-  // Auto-seed default character for first-time sessions
-  const seeded = await seedDefaultCharacter(anonId);
+  // Auto-seed default characters for first-time sessions
+  const seeded = await seedDefaultCharacters(anonId);
   res.json(seeded);
 });
 
@@ -70,7 +104,7 @@ router.get("/characters", async (req, res): Promise<void> => {
     .orderBy(desc(charactersTable.createdAt));
 
   if (characters.length === 0) {
-    await seedDefaultCharacter(anonId);
+    await seedDefaultCharacters(anonId);
     const seeded = await db
       .select()
       .from(charactersTable)
