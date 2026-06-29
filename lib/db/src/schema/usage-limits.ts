@@ -21,6 +21,25 @@ export const usageLimitsTable = pgTable("usage_limits", {
   index("usage_limits_anon_date_idx").on(table.anonymousId, table.limitDate),
 ]);
 
+export const ipDailyLimitsTable = pgTable("ip_daily_limits", {
+  id: text("id").primaryKey(),
+  ipHash: text("ip_hash").notNull(),
+  limitDate: date("limit_date", { mode: "string" }).notNull(),
+  chatCount: integer("chat_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ip_daily_limits_hash_date_idx").on(table.ipHash, table.limitDate),
+]);
+
+export const globalDailyBudgetTable = pgTable("global_daily_budget", {
+  id: text("id").primaryKey(),
+  limitDate: date("limit_date", { mode: "string" }).notNull(),
+  totalChatCount: integer("total_chat_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("global_daily_budget_date_idx").on(table.limitDate),
+]);
+
 export const requestLogsTable = pgTable("request_logs", {
   id: text("id").primaryKey(),
   anonymousId: text("anonymous_id").notNull().references(() => anonymousSessionsTable.id, { onDelete: "cascade" }),
@@ -50,6 +69,14 @@ export type AnonymousSession = typeof anonymousSessionsTable.$inferSelect;
 export const insertUsageLimitSchema = createInsertSchema(usageLimitsTable).omit({ id: true, updatedAt: true });
 export type InsertUsageLimit = z.infer<typeof insertUsageLimitSchema>;
 export type UsageLimit = typeof usageLimitsTable.$inferSelect;
+
+export const insertIpDailyLimitSchema = createInsertSchema(ipDailyLimitsTable).omit({ id: true, updatedAt: true });
+export type InsertIpDailyLimit = z.infer<typeof insertIpDailyLimitSchema>;
+export type IpDailyLimit = typeof ipDailyLimitsTable.$inferSelect;
+
+export const insertGlobalDailyBudgetSchema = createInsertSchema(globalDailyBudgetTable).omit({ id: true, updatedAt: true });
+export type InsertGlobalDailyBudget = z.infer<typeof insertGlobalDailyBudgetSchema>;
+export type GlobalDailyBudget = typeof globalDailyBudgetTable.$inferSelect;
 
 export const insertRequestLogSchema = createInsertSchema(requestLogsTable).omit({ id: true, createdAt: true });
 export type InsertRequestLog = z.infer<typeof insertRequestLogSchema>;

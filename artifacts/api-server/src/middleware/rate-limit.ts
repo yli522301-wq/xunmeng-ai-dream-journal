@@ -5,15 +5,27 @@ import {
   usageLimitsTable,
   rateLimitEntriesTable,
   requestLogsTable,
+  ipDailyLimitsTable,
+  globalDailyBudgetTable,
 } from "@workspace/db";
 import { eq, and, gte } from "drizzle-orm";
 import { createHash } from "crypto";
 
 const RATE_LIMIT_PER_MINUTE = 5;
-const CHAT_LIMIT_PER_DAY = 30;
+const CHAT_LIMIT_PER_DAY = Number(process.env.CHAT_LIMIT_PER_DAY ?? "30");
+const IP_CHAT_LIMIT_PER_DAY = Number(process.env.IP_CHAT_LIMIT_PER_DAY ?? "50");
+const GLOBAL_CHAT_LIMIT_PER_DAY = Number(process.env.GLOBAL_CHAT_LIMIT_PER_DAY ?? "500");
 const SONG_SEARCH_LIMIT_PER_DAY = 5;
 const MAX_MESSAGE_LENGTH = 1000;
 const RATE_WINDOW_MS = 60 * 1000;
+
+// Input size limits (tunable via env vars)
+const MAX_HISTORY_ITEMS = Number(process.env.MAX_HISTORY_ITEMS ?? "10");
+const MAX_HISTORY_TOTAL_CHARS = Number(process.env.MAX_HISTORY_TOTAL_CHARS ?? "8000");
+const MAX_HISTORY_ITEM_CHARS = Number(process.env.MAX_HISTORY_ITEM_CHARS ?? "2000");
+const MAX_DREAM_CONTEXT_CHARS = Number(process.env.MAX_DREAM_CONTEXT_CHARS ?? "3000");
+const MAX_MUSIC_CONTEXT_CHARS = Number(process.env.MAX_MUSIC_CONTEXT_CHARS ?? "300");
+const MAX_CONTENT_CHARS = Number(process.env.MAX_CONTENT_CHARS ?? "5000");
 
 export const errorMessages = {
   messageTooLong: "这段话有点长，可以分成几次慢慢告诉我。",
@@ -22,6 +34,9 @@ export const errorMessages = {
   dailySongLimit: "今天寻找歌曲故事的次数已经用完了，我们先聊聊这首歌带给你的感觉吧。",
   timeout: "刚刚的回应走丢了，没有产生额外重试，请稍后再试。",
   concurrent: "请等待上一条消息的回复完成。",
+  inputTooLarge: "输入内容太长，请减少后再试。",
+  aiDisabled: "AI 服务暂时关闭，请稍后再试。",
+  globalLimit: "今天的 AI 对话次数已达到上限，明天再继续吧。",
 };
 
 export type LimitErrorCode =
@@ -31,6 +46,9 @@ export type LimitErrorCode =
   | "daily_song_limit"
   | "timeout"
   | "concurrent"
+  | "input_too_large"
+  | "ai_disabled"
+  | "global_limit"
   | "unknown";
 
 export interface LimitError {
@@ -96,6 +114,18 @@ async function ensureSessionRecord(req: Request): Promise<string> {
   return anonId;
 }
 
+/** Emergency kill switch: returns 503 immediately when AI_DISABLED=true */
+export function checkAiDisabled(req: Request, res: Response, next: NextFunction): void {
+  if (process.env.AI_DISABLED === "true") {
+    res.status(503).json({
+      error: errorMessages.aiDisabled,
+      code: "ai_disabled",
+    } as unknown as LimitError);
+    return;
+  }
+  next();
+}
+
 export async function checkMessageLength(req: Request, res: Response, next: NextFunction): Promise<void> {
   const userInput = req.body?.userInput ?? req.body?.message ?? "";
   if (typeof userInput === "string" && userInput.length > MAX_MESSAGE_LENGTH) {
@@ -105,6 +135,77 @@ export async function checkMessageLength(req: Request, res: Response, next: Next
     } as unknown as LimitError);
     return;
   }
+  next();
+}
+
+/** Validate input sizes on all routes that accept history / content / context fields.
+ *  Returns 400 without touching OpenAI if any limit is exceeded. */
+export function checkInputLimits(req: Request, res: Response, next: NextFunction): void {
+  const body = req.body ?? {};
+
+  // history array checks
+  if (Array.isArray(body.history)) {
+    if (body.history.length > MAX_HISTORY_ITEMS) {
+      res.status(400).json({
+        error: errorMessages.inputTooLarge,
+        code: "input_too_large",
+      } as unknown as LimitError);
+      return;
+    }
+    let totalChars = 0;
+    for (const item of body.history) {
+      const content = typeof item?.content === "string" ? item.content : "";
+      if (content.length > MAX_HISTORY_ITEM_CHARS) {
+        res.status(400).json({
+          error: errorMessages.inputTooLarge,
+          code: "input_too_large",
+        } as unknown as LimitError);
+        return;
+      }
+      totalChars += content.length;
+    }
+    if (totalChars > MAX_HISTORY_TOTAL_CHARS) {
+      res.status(400).json({
+        error: errorMessages.inputTooLarge,
+        code: "input_too_large",
+      } as unknown as LimitError);
+      return;
+    }
+  }
+
+  // dreamContext limit
+  if (typeof body.dreamContext === "string" && body.dreamContext.length > MAX_DREAM_CONTEXT_CHARS) {
+    res.status(400).json({
+      error: errorMessages.inputTooLarge,
+      code: "input_too_large",
+    } as unknown as LimitError);
+    return;
+  }
+
+  // content (organize endpoint)
+  if (typeof body.content === "string" && body.content.length > MAX_CONTENT_CHARS) {
+    res.status(400).json({
+      error: errorMessages.inputTooLarge,
+      code: "input_too_large",
+    } as unknown as LimitError);
+    return;
+  }
+
+  // musicContext string fields
+  if (body.musicContext && typeof body.musicContext === "object") {
+    const mc = body.musicContext as Record<string, unknown>;
+    for (const field of ["title", "artist", "fileName", "type", "mood"] as const) {
+      const val = mc[field];
+      if (typeof val === "string" && val.length > MAX_MUSIC_CONTEXT_CHARS) {
+        res.status(400).json({
+          error: errorMessages.inputTooLarge,
+          code: "input_too_large",
+        } as unknown as LimitError);
+        return;
+      }
+    }
+  }
+
   next();
 }
 
@@ -164,6 +265,8 @@ export async function checkDailyChatLimit(req: Request, res: Response, next: Nex
   }
 
   const today = getToday();
+
+  // Session-level check
   const existing = await db
     .select()
     .from(usageLimitsTable)
@@ -180,6 +283,45 @@ export async function checkDailyChatLimit(req: Request, res: Response, next: Nex
     res.status(429).json({
       error: errorMessages.dailyChatLimit,
       code: "daily_chat_limit",
+    } as unknown as LimitError);
+    return;
+  }
+
+  // IP-level check (survives cookie rotation)
+  const ip = getClientIp(req);
+  const ipHash = hashIp(ip);
+  if (ipHash !== "unknown") {
+    const ipRecord = await db
+      .select()
+      .from(ipDailyLimitsTable)
+      .where(
+        and(
+          eq(ipDailyLimitsTable.ipHash, ipHash),
+          eq(ipDailyLimitsTable.limitDate, today)
+        )
+      )
+      .limit(1);
+
+    if (ipRecord[0] && ipRecord[0].chatCount >= IP_CHAT_LIMIT_PER_DAY) {
+      res.status(429).json({
+        error: errorMessages.dailyChatLimit,
+        code: "daily_chat_limit",
+      } as unknown as LimitError);
+      return;
+    }
+  }
+
+  // Global budget check
+  const globalRecord = await db
+    .select()
+    .from(globalDailyBudgetTable)
+    .where(eq(globalDailyBudgetTable.limitDate, today))
+    .limit(1);
+
+  if (globalRecord[0] && globalRecord[0].totalChatCount >= GLOBAL_CHAT_LIMIT_PER_DAY) {
+    res.status(429).json({
+      error: errorMessages.globalLimit,
+      code: "global_limit",
     } as unknown as LimitError);
     return;
   }
@@ -295,6 +437,64 @@ export async function incrementChatCount(req: Request): Promise<void> {
       limitDate: today,
       chatCount: 1,
       songSearchCount: 0,
+      updatedAt: new Date(),
+    });
+  }
+
+  // Increment IP-level counter
+  const ip = getClientIp(req);
+  const ipHash = hashIp(ip);
+  if (ipHash !== "unknown") {
+    const ipExisting = await db
+      .select()
+      .from(ipDailyLimitsTable)
+      .where(
+        and(
+          eq(ipDailyLimitsTable.ipHash, ipHash),
+          eq(ipDailyLimitsTable.limitDate, today)
+        )
+      )
+      .limit(1);
+
+    if (ipExisting.length > 0) {
+      await db
+        .update(ipDailyLimitsTable)
+        .set({
+          chatCount: ipExisting[0].chatCount + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(ipDailyLimitsTable.id, ipExisting[0].id));
+    } else {
+      await db.insert(ipDailyLimitsTable).values({
+        id: crypto.randomUUID(),
+        ipHash,
+        limitDate: today,
+        chatCount: 1,
+        updatedAt: new Date(),
+      });
+    }
+  }
+
+  // Increment global budget counter
+  const globalExisting = await db
+    .select()
+    .from(globalDailyBudgetTable)
+    .where(eq(globalDailyBudgetTable.limitDate, today))
+    .limit(1);
+
+  if (globalExisting.length > 0) {
+    await db
+      .update(globalDailyBudgetTable)
+      .set({
+        totalChatCount: globalExisting[0].totalChatCount + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(globalDailyBudgetTable.id, globalExisting[0].id));
+  } else {
+    await db.insert(globalDailyBudgetTable).values({
+      id: crypto.randomUUID(),
+      limitDate: today,
+      totalChatCount: 1,
       updatedAt: new Date(),
     });
   }

@@ -7,6 +7,8 @@ import {
   DreamChatBody,
 } from "@workspace/api-zod";
 import {
+  checkAiDisabled,
+  checkInputLimits,
   checkMessageLength,
   checkRateLimit,
   checkDailyChatLimit,
@@ -322,7 +324,11 @@ router.get("/ai/settings", async (_req, res): Promise<void> => {
 
 router.post(
   "/ai/organize",
+  checkAiDisabled,
+  checkInputLimits,
   checkRateLimit,
+  checkDailyChatLimit,
+  checkConcurrentRequest,
   async (req, res): Promise<void> => {
   const parsed = AiOrganizeDreamBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
@@ -361,6 +367,8 @@ router.post(
 
 router.post(
   "/ai/chat",
+  checkAiDisabled,
+  checkInputLimits,
   checkMessageLength,
   checkRateLimit,
   checkDailyChatLimit,
@@ -583,7 +591,9 @@ const MAX_TTS_LENGTH = 500;
 
 router.post(
   "/ai/tts",
+  checkAiDisabled,
   checkRateLimit,
+  checkConcurrentRequest,
   async (req, res): Promise<void> => {
   const { text, character } = req.body as { text?: unknown; character?: unknown };
   if (typeof text !== "string" || !text.trim()) {
@@ -611,6 +621,8 @@ router.post(
 
 router.post(
   "/ai/dream-chat",
+  checkAiDisabled,
+  checkInputLimits,
   checkMessageLength,
   checkRateLimit,
   checkDailyChatLimit,
@@ -768,7 +780,9 @@ ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` 
 
 router.post(
   "/ai/recognize-image",
+  checkAiDisabled,
   checkRateLimit,
+  checkDailyChatLimit,
   checkConcurrentRequest,
   async (req, res): Promise<void> => {
     const parsed = AiRecognizeImageBody.safeParse(req.body);

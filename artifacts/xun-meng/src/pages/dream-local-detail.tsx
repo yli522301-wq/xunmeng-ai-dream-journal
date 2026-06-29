@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
+import { useSessionNs, getDreamsKey } from "@/hooks/use-session-ns";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Trash2, Play, Pause, Mic, X } from "lucide-react";
 import type { ChatMessage } from "@/pages/dream-space";
@@ -292,10 +293,12 @@ export default function DreamLocalDetail() {
   const [dream, setDream] = useState<SavedDream | null | undefined>(undefined);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const id = (params as { id: string }).id;
+  const ns = useSessionNs();
+  const dreamsKey = getDreamsKey(ns);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
+      const raw = localStorage.getItem(dreamsKey);
       if (raw) {
         const all = JSON.parse(raw) as SavedDream[];
         setDream(all.find(d => d.id === id) ?? null);
@@ -303,14 +306,14 @@ export default function DreamLocalDetail() {
         setDream(null);
       }
     } catch { setDream(null); }
-  }, [id]);
+  }, [id, dreamsKey]);
 
   const handleDelete = () => {
     if (!window.confirm("确定要删除这段梦吗？")) return;
     try {
-      const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
+      const raw = localStorage.getItem(dreamsKey);
       const all = raw ? (JSON.parse(raw) as SavedDream[]) : [];
-      localStorage.setItem(DREAMS_STORAGE_KEY, JSON.stringify(all.filter(d => d.id !== id)));
+      localStorage.setItem(dreamsKey, JSON.stringify(all.filter(d => d.id !== id)));
     } catch { /* ignore */ }
     setLocation("/archive");
   };

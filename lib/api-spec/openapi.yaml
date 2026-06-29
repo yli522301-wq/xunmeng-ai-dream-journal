@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: session
+    description: Session operations
   - name: characters
     description: AI character profile operations
   - name: dreams
@@ -19,6 +21,19 @@ tags:
   - name: ai
     description: AI operations
 paths:
+  /session/ns:
+    get:
+      operationId: getSessionNamespace
+      tags: [session]
+      summary: Get a short opaque namespace token for the current session
+      responses:
+        "200":
+          description: Session namespace token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionNamespace"
+
   /healthz:
     get:
       operationId: healthCheck
@@ -893,6 +908,15 @@ components:
           type: boolean
           description: 当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制
           default: false
+
+    SessionNamespace:
+      type: object
+      required:
+        - ns
+      properties:
+        ns:
+          type: string
+          description: Short opaque namespace token derived from the session (16 hex chars)
 
     SearchSource:
       type: object

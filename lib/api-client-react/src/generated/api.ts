@@ -40,7 +40,8 @@ import type {
   DreamUpdate,
   ErrorResponse,
   GetChatHistoryParams,
-  HealthStatus
+  HealthStatus,
+  SessionNamespace
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -52,6 +53,83 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+export const getGetSessionNamespaceUrl = () => {
+
+
+
+
+  return `/api/session/ns`
+}
+
+/**
+ * @summary Get a short opaque namespace token for the current session
+ */
+export const getSessionNamespace = async ( options?: RequestInit): Promise<SessionNamespace> => {
+
+  return customFetch<SessionNamespace>(getGetSessionNamespaceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSessionNamespaceQueryKey = () => {
+    return [
+    `/api/session/ns`
+    ] as const;
+    }
+
+
+export const getGetSessionNamespaceQueryOptions = <TData = Awaited<ReturnType<typeof getSessionNamespace>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSessionNamespace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSessionNamespaceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSessionNamespace>>> = ({ signal }) => getSessionNamespace({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSessionNamespace>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSessionNamespaceQueryResult = NonNullable<Awaited<ReturnType<typeof getSessionNamespace>>>
+export type GetSessionNamespaceQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a short opaque namespace token for the current session
+ */
+
+export function useGetSessionNamespace<TData = Awaited<ReturnType<typeof getSessionNamespace>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSessionNamespace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSessionNamespaceQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
 
 
 

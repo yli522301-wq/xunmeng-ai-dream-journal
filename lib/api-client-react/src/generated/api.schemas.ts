@@ -369,6 +369,11 @@ export interface DreamChatInput {
   songSearch?: boolean;
 }
 
+export interface SessionNamespace {
+  /** Short opaque namespace token derived from the session (16 hex chars) */
+  ns: string;
+}
+
 export interface SearchSource {
   name: string;
   title: string;

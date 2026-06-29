@@ -9,6 +9,14 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Get a short opaque namespace token for the current session
+ */
+export const GetSessionNamespaceResponse = zod.object({
+  "ns": zod.string().describe('Short opaque namespace token derived from the session (16 hex chars)')
+})
+
+
+/**
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({

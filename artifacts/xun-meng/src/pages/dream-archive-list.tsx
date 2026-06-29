@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
+import { useSessionNs, getDreamsKey } from "@/hooks/use-session-ns";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, X, Sparkles,
@@ -214,13 +215,15 @@ export default function DreamArchiveList() {
   const [allDreams,    setAllDreams]    = useState<SavedDream[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [calOpen,      setCalOpen]      = useState(false);
+  const ns = useSessionNs();
+  const dreamsKey = getDreamsKey(ns);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DREAMS_STORAGE_KEY);
+      const raw = localStorage.getItem(dreamsKey);
       if (raw) setAllDreams([...JSON.parse(raw) as SavedDream[]].reverse());
     } catch { /* ignore */ }
-  }, []);
+  }, [dreamsKey]);
 
   // Calendar dot indicators
   const dreamsByDate = useMemo(() => {
