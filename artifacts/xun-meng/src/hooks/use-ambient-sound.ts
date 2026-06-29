@@ -134,16 +134,23 @@ export function useAmbientSound() {
     gain.connect(ctx.destination);
     gainRef.current = gain;
 
-    // Fade in
-    const targetVol = 0.05;
-    gain.gain.setTargetAtTime(targetVol, ctx.currentTime, 0.8);
+    // resume() is required in production HTTPS — browsers create AudioContext
+    // in "suspended" state until explicitly resumed. Must be called inside a
+    // user-gesture handler (which this always is) for browsers to allow it.
+    ctx.resume().then(() => {
+      // Fade in after context is running
+      const targetVol = 0.05;
+      gain.gain.setTargetAtTime(targetVol, ctx.currentTime, 0.8);
 
-    let sources: (AudioBufferSourceNode | OscillatorNode)[];
-    if (type === "rain")  sources = buildRain(ctx, gain);
-    else if (type === "night") sources = buildNight(ctx, gain);
-    else sources = buildOcean(ctx, gain);
+      let sources: (AudioBufferSourceNode | OscillatorNode)[];
+      if (type === "rain")       sources = buildRain(ctx, gain);
+      else if (type === "night") sources = buildNight(ctx, gain);
+      else                       sources = buildOcean(ctx, gain);
 
-    sourcesRef.current = sources;
+      sourcesRef.current = sources;
+    }).catch(err => {
+      console.error("[ambient-sound] AudioContext resume failed:", err);
+    });
   }, [stop]);
 
   const setVolume = useCallback((vol: number) => {

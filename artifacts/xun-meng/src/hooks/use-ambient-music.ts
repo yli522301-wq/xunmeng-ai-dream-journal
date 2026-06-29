@@ -154,16 +154,22 @@ export function useAmbientMusic() {
       gain.connect(ctx.destination);
       gainRef.current = gain;
 
-      const vol = type === "strings" ? 0.055 : 0.06;
-      gain.gain.setTargetAtTime(vol, ctx.currentTime, 1.2);
+      // resume() is required in production HTTPS — browsers create AudioContext
+      // in "suspended" state until explicitly resumed.
+      ctx.resume().then(() => {
+        const vol = type === "strings" ? 0.055 : 0.06;
+        gain.gain.setTargetAtTime(vol, ctx.currentTime, 1.2);
 
-      let handle: { stop: () => void };
-      if (type === "piano")       handle = buildPiano(ctx, gain, C_PENTA);
-      else if (type === "fog")    handle = buildFogAmbient(ctx, gain);
-      else if (type === "strings") handle = buildStrings(ctx, gain);
-      else /* piano-rain */       handle = buildPiano(ctx, gain, A_MINOR_PENTA);
+        let handle: { stop: () => void };
+        if (type === "piano")        handle = buildPiano(ctx, gain, C_PENTA);
+        else if (type === "fog")     handle = buildFogAmbient(ctx, gain);
+        else if (type === "strings") handle = buildStrings(ctx, gain);
+        else /* piano-rain */        handle = buildPiano(ctx, gain, A_MINOR_PENTA);
 
-      handleRef.current = handle;
+        handleRef.current = handle;
+      }).catch(err => {
+        console.error("[ambient-music] AudioContext resume failed:", err);
+      });
     }, 100); // small delay for cleaner fade-in after context creation
   }, [stop]);
 
