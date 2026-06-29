@@ -77,8 +77,8 @@ export default function DreamCorridor() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(dreamsKey);
-      if (raw) setAllDreams([...JSON.parse(raw) as SavedDream[]].reverse());
-    } catch { /* ignore */ }
+      setAllDreams(raw ? [...JSON.parse(raw) as SavedDream[]].reverse() : []);
+    } catch { setAllDreams([]); }
     const t = setTimeout(() => setIntro(false), 400);
     return () => clearTimeout(t);
   }, [dreamsKey]);

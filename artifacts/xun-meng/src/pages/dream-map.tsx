@@ -268,8 +268,8 @@ export default function DreamMap() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(dreamsKey);
-      if (raw) setAllDreams([...JSON.parse(raw) as SavedDream[]].reverse());
-    } catch { /* ignore */ }
+      setAllDreams(raw ? [...JSON.parse(raw) as SavedDream[]].reverse() : []);
+    } catch { setAllDreams([]); }
   }, [dreamsKey]);
 
   const orbs = useMemo(() => computeLayout(allDreams), [allDreams]);

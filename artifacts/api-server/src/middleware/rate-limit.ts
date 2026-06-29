@@ -337,6 +337,8 @@ export async function checkDailySongLimit(req: Request, res: Response, next: Nex
   }
 
   const today = getToday();
+
+  // Session-level check
   const existing = await db
     .select()
     .from(usageLimitsTable)
@@ -357,6 +359,45 @@ export async function checkDailySongLimit(req: Request, res: Response, next: Nex
     return;
   }
 
+  // IP-level check (survives cookie rotation)
+  const ip = getClientIp(req);
+  const ipHash = hashIp(ip);
+  if (ipHash !== "unknown") {
+    const ipRecord = await db
+      .select()
+      .from(ipDailyLimitsTable)
+      .where(
+        and(
+          eq(ipDailyLimitsTable.ipHash, ipHash),
+          eq(ipDailyLimitsTable.limitDate, today)
+        )
+      )
+      .limit(1);
+
+    if (ipRecord[0] && ipRecord[0].chatCount >= IP_CHAT_LIMIT_PER_DAY) {
+      res.status(429).json({
+        error: errorMessages.dailySongLimit,
+        code: "daily_song_limit",
+      } as unknown as LimitError);
+      return;
+    }
+  }
+
+  // Global budget check
+  const globalRecord = await db
+    .select()
+    .from(globalDailyBudgetTable)
+    .where(eq(globalDailyBudgetTable.limitDate, today))
+    .limit(1);
+
+  if (globalRecord[0] && globalRecord[0].totalChatCount >= GLOBAL_CHAT_LIMIT_PER_DAY) {
+    res.status(429).json({
+      error: errorMessages.globalLimit,
+      code: "global_limit",
+    } as unknown as LimitError);
+    return;
+  }
+
   next();
 }
 
@@ -366,6 +407,8 @@ export async function checkDailySongLimitInline(req: Request): Promise<boolean> 
   if (!anonId) return true;
 
   const today = getToday();
+
+  // Session-level check
   const existing = await db
     .select()
     .from(usageLimitsTable)
@@ -379,6 +422,37 @@ export async function checkDailySongLimitInline(req: Request): Promise<boolean> 
 
   const record = existing[0];
   if (record && record.songSearchCount >= SONG_SEARCH_LIMIT_PER_DAY) {
+    return false;
+  }
+
+  // IP-level check (survives cookie rotation)
+  const ip = getClientIp(req);
+  const ipHash = hashIp(ip);
+  if (ipHash !== "unknown") {
+    const ipRecord = await db
+      .select()
+      .from(ipDailyLimitsTable)
+      .where(
+        and(
+          eq(ipDailyLimitsTable.ipHash, ipHash),
+          eq(ipDailyLimitsTable.limitDate, today)
+        )
+      )
+      .limit(1);
+
+    if (ipRecord[0] && ipRecord[0].chatCount >= IP_CHAT_LIMIT_PER_DAY) {
+      return false;
+    }
+  }
+
+  // Global budget check
+  const globalRecord = await db
+    .select()
+    .from(globalDailyBudgetTable)
+    .where(eq(globalDailyBudgetTable.limitDate, today))
+    .limit(1);
+
+  if (globalRecord[0] && globalRecord[0].totalChatCount >= GLOBAL_CHAT_LIMIT_PER_DAY) {
     return false;
   }
 

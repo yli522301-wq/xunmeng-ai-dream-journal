@@ -221,8 +221,8 @@ export default function DreamArchiveList() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(dreamsKey);
-      if (raw) setAllDreams([...JSON.parse(raw) as SavedDream[]].reverse());
-    } catch { /* ignore */ }
+      setAllDreams(raw ? [...JSON.parse(raw) as SavedDream[]].reverse() : []);
+    } catch { setAllDreams([]); }
   }, [dreamsKey]);
 
   // Calendar dot indicators
