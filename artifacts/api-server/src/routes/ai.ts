@@ -357,6 +357,7 @@ router.post(
 梦境内容：${parsed.data.content}`;
 
     const text = await openaiChat([{ role: "user", content: prompt }], apiKey, model);
+    await incrementChatCount(req);
     res.json({ ...JSON.parse(text), isMock: false });
   } catch (err) {
     req.log.error({ err }, "AI organize failed → mock");
@@ -388,8 +389,7 @@ router.post(
   }
 
   try {
-    const sysPrompt = parsed.data.characterSystemPrompt
-      ?? "你是「巡梦」中的 AI 梦境观察者。你不是算命师，也不是心理医生。你会温柔地陪用户回忆梦境，帮助用户整理情绪、发现梦境中的意象和现实生活的可能联系。你的回答要简洁、细腻、治愈，不要吓人，不要给绝对结论。";
+    const sysPrompt = "你是「巡梦」中的 AI 梦境观察者。你不是算命师，也不是心理医生。你会温柔地陪用户回忆梦境，帮助用户整理情绪、发现梦境中的意象和现实生活的可能联系。你的回答要简洁、细腻、治愈，不要吓人，不要给绝对结论。";
 
     const dreamCtx = parsed.data.dreamContext
       ? `\n\n当前讨论的梦境：\n${parsed.data.dreamContext}`
@@ -593,6 +593,7 @@ router.post(
   "/ai/tts",
   checkAiDisabled,
   checkRateLimit,
+  checkDailyChatLimit,
   checkConcurrentRequest,
   async (req, res): Promise<void> => {
   const { text, character } = req.body as { text?: unknown; character?: unknown };
@@ -609,6 +610,7 @@ router.post(
   try {
     const log = (msg: string, data?: object) => req.log.info(data ?? {}, msg);
     const buf = await elevenLabsTts(text.trim(), typeof character === "string" ? character : "anuan", apiKey, log);
+    await incrementChatCount(req);
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     res.send(buf);
@@ -810,6 +812,7 @@ router.post(
         ],
       }];
       const text = await openaiChat(messages, apiKey, model);
+      await incrementChatCount(req);
       await logRequest(req, "recognize-image", true);
       res.json({ ...JSON.parse(text), isMock: false });
     } catch (err) {
