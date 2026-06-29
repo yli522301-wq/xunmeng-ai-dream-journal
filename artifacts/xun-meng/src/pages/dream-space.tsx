@@ -981,9 +981,9 @@ export default function DreamSpace() {
         usedMock = true;
       } else {
         try {
-          // Build history: exclude hint messages; last ≤20 messages (≈10 turns) for AI context
+          // Build history: exclude hint messages; last ≤24 messages (≈12 turns) for AI context
           const aiMsgs = updatedMsgs.filter(m => m.type !== "hint");
-          const historyItems = aiMsgs.slice(-21, -1).map(m => ({
+          const historyItems = aiMsgs.slice(-25, -1).map(m => ({
             role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
             content: m.role === "user"
               ? m.content

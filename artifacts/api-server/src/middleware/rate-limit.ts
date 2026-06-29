@@ -9,8 +9,8 @@ import {
 import { eq, and, gte, lte } from "drizzle-orm";
 import { createHash } from "crypto";
 
-const RATE_LIMIT_PER_MINUTE = 5;
-const CHAT_LIMIT_PER_DAY = 30;
+const RATE_LIMIT_PER_MINUTE = 8;
+const CHAT_LIMIT_PER_DAY = 80;
 const SONG_SEARCH_LIMIT_PER_DAY = 5;
 const MAX_MESSAGE_LENGTH = 1000;
 const RATE_WINDOW_MS = 60 * 1000;
@@ -18,7 +18,7 @@ const RATE_WINDOW_MS = 60 * 1000;
 export const errorMessages = {
   messageTooLong: "这段话有点长，可以分成几次慢慢告诉我。",
   tooFast: "慢一点，我还在听你刚刚说的话。",
-  dailyChatLimit: "今天的梦聊得有点久啦，明天再继续吧。",
+  dailyChatLimit: "今天已经聊了很多啦，明天再继续陪你。",
   dailySongLimit: "今天寻找歌曲故事的次数已经用完了，我们先聊聊这首歌带给你的感觉吧。",
   timeout: "刚刚的回应走丢了，没有产生额外重试，请稍后再试。",
   concurrent: "请等待上一条消息的回复完成。",

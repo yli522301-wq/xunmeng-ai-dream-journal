@@ -204,7 +204,7 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
 // ─── Real API helpers ─────────────────────────────────────────────────────────
 
 const OPENAI_TIMEOUT_MS = 30_000;
-const MAX_REPLY_TOKENS = 600;
+const MAX_REPLY_TOKENS = 800;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
