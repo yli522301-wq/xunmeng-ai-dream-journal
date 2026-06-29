@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
@@ -316,6 +316,7 @@ function saveAvatars(a: Record<CharKey, string | null>) {
 export default function DreamSpace() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const search = useSearch();
 
   const [activeKey, setActiveKey]  = useState<CharKey>(loadCharKey);
   const { data: settings }         = useGetAiSettings();
@@ -534,39 +535,68 @@ export default function DreamSpace() {
   const { play: playAmbient, stop: stopAmbient } = useAmbientSound();
   const { play: playMusic,   stop: stopMusic }   = useAmbientMusic();
 
-  // ── Resume dream on mount ─────────────────────────────────────────────────
+  // ── Resume dream via URL param (?continueDreamId=...) ────────────────────
+  // This survives page refresh because the URL is stable.
   useEffect(() => {
+    const params = new URLSearchParams(search);
+    const continueDreamId = params.get("continueDreamId");
+
+    // Also clean up any legacy xm_resume_dream key left by older code
+    localStorage.removeItem(RESUME_STORAGE_KEY);
+
+    if (!continueDreamId) {
+      // No continue param — ensure we're in new-dream mode
+      // (only reset if we were previously in continue mode to avoid overwriting user state)
+      setEditingDreamId(prev => { if (prev) { return null; } return prev; });
+      setDreamMode(prev => { if (prev === "continue") { return "new"; } return prev; });
+      return;
+    }
+
     try {
-      const raw = localStorage.getItem(RESUME_STORAGE_KEY);
-      if (!raw) return;
-      localStorage.removeItem(RESUME_STORAGE_KEY);
-      const resume = JSON.parse(raw) as {
-        dreamId: string;
-        title: string;
-        summary: string;
-        activeCharacter: CharKey;
-        messages: ChatMessage[];
-        musicSnapshot?: MusicSnapshot;
-      };
-      const key: CharKey = resume.activeCharacter ?? "anuan";
+      const allDreams: Array<Record<string, unknown>> =
+        JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]");
+      const dream = allDreams.find(d => d.id === continueDreamId);
+      if (!dream) {
+        toast({ title: "找不到这段梦境记录。" });
+        setLocation("/");
+        return;
+      }
+
+      const key: CharKey = (dream.activeCharacter as CharKey) ?? "anuan";
       saveCharKey(key);
       setActiveKey(key);
-      // Append an inline divider hint at the boundary between restored and new messages
+
+      const originalMsgs = (dream.messages as ChatMessage[]) ?? [];
       const hintMsg: ChatMessage = {
-        id: `hint-${resume.dreamId}`,
+        id: `hint-${continueDreamId}`,
         role: "user",
         type: "hint",
-        content: "已回到这段回忆",
+        content: "从这里继续",
         timestamp: nowTime(),
       };
-      setMessages([...resume.messages, hintMsg]);
-      setEditingDreamId(resume.dreamId);
+      setMessages([...originalMsgs, hintMsg]);
+      setEditingDreamId(continueDreamId);
       setDreamMode("continue");
-      resumeSummaryRef.current = { title: resume.title, summary: resume.summary };
+      resumeSummaryRef.current = {
+        title: (dream.title as string) ?? "",
+        summary: (dream.summary as string) ?? "",
+      };
       setResumeActive(true);
-    } catch { /* ignore */ }
+
+      // Restore music snapshot if present
+      const snap = dream.musicSnapshot as MusicSnapshot | undefined;
+      if (snap) {
+        if (snap.source === "ambient" && snap.environmentId) {
+          setAmbientSound(snap.environmentId as AmbientSoundType);
+        } else if (snap.source === "builtin" && snap.trackId) {
+          setMusic(snap.trackId as MusicType);
+        }
+      }
+    } catch {
+      /* ignore parse errors */
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [search]);
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -1470,11 +1500,9 @@ export default function DreamSpace() {
           {dreamMode === "continue" && (
             <button
               onClick={() => {
-                setMessages([]);
-                setEditingDreamId(null);
-                setDreamMode("new");
-                resumeSummaryRef.current = null;
-                setResumeActive(false);
+                // Navigate to "/" without the continueDreamId param — the
+                // URL-param useEffect will then reset to new-dream mode.
+                setLocation("/");
               }}
               className="text-[10px] tracking-wider transition-colors px-2 py-0.5 rounded-full"
               style={{

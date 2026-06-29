@@ -7,7 +7,6 @@ import { DREAMS_STORAGE_KEY, type SavedDream } from "@/pages/dream-archive";
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
 
-const RESUME_STORAGE_KEY = "xm_resume_dream";
 
 const CHAR_STYLES: Record<string, { name: string; enName: string; hsl: string; dot: string }> = {
   daoshen: { name: "岛深", enName: "Daoshan", hsl: "185 70% 55%", dot: "#6B8CFF" },
@@ -497,16 +496,7 @@ export default function DreamLocalDetail() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              const resume = {
-                dreamId: dream.id,
-                title: dream.title,
-                summary: dream.summary,
-                activeCharacter: dream.activeCharacter,
-                messages: dream.messages,
-                musicSnapshot: dream.musicSnapshot,
-              };
-              localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(resume));
-              setLocation("/");
+              setLocation(`/?continueDreamId=${encodeURIComponent(dream.id)}`);
             }}
             className="flex items-center gap-1.5 text-[10px] tracking-wider transition-opacity"
             style={{ color: "rgba(255,255,255,0.28)" }}
