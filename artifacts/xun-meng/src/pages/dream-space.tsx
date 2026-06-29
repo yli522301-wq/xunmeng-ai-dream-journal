@@ -49,6 +49,18 @@ export interface MusicContext {
   isPlaying: boolean;
 }
 
+export interface MusicSnapshot {
+  source: "builtin" | "local" | "ambient";
+  title: string;
+  artist?: string;
+  fileName?: string;
+  trackId?: string;
+  environmentId?: string;
+  mood?: string;
+  volume?: number;
+  isPlaying?: boolean;
+}
+
 export interface DreamCharConfig {
   key: CharKey;
   nameMatch: string;
@@ -164,6 +176,7 @@ function getMockReply(key: CharKey, userMsg: string, history: ChatMessage[]): st
 }
 
 const DREAMS_STORAGE_KEY = "xm-saved-dreams";
+const RESUME_STORAGE_KEY = "xm_resume_dream";
 
 function getCharConfig(name: string): DreamCharConfig {
   for (const c of DREAM_CHARS) {
@@ -311,6 +324,7 @@ export default function DreamSpace() {
   const recognizeMutation   = useAiRecognizeImage();
 
   const [messages,      setMessages]      = useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [resumeActive,  setResumeActive]  = useState(false);
   const [inputText,     setInputText]     = useState("");
   const [voiceStatusS,  setVoiceStatusS]  = useState<VoiceStatus>("idle");
   const [isThinking,    setIsThinking]    = useState(false);
@@ -326,6 +340,9 @@ export default function DreamSpace() {
   const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
   const [musicContext, setMusicContext] = useState<MusicContext | null>(null);
   const musicContextRef = useRef<MusicContext | null>(null);
+  const [saveMusicSnapshot, setSaveMusicSnapshot] = useState(true);
+  const resumeParentIdRef = useRef<string | undefined>(undefined);
+  const resumeInfoRef = useRef<{ title: string; summary: string } | null>(null);
 
   // ── ElevenLabs TTS state ──────────────────────────────────────────────────
   const [ttsEnabled, setTtsEnabledState] = useState(() => {
@@ -515,6 +532,34 @@ export default function DreamSpace() {
 
   const { play: playAmbient, stop: stopAmbient } = useAmbientSound();
   const { play: playMusic,   stop: stopMusic }   = useAmbientMusic();
+
+  // ── Resume dream on mount ─────────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RESUME_STORAGE_KEY);
+      if (!raw) return;
+      localStorage.removeItem(RESUME_STORAGE_KEY);
+      const resume = JSON.parse(raw) as {
+        dreamId: string;
+        parentDreamId: string;
+        title: string;
+        summary: string;
+        activeCharacter: CharKey;
+        messages: ChatMessage[];
+      };
+      const key: CharKey = resume.activeCharacter ?? "anuan";
+      saveCharKey(key);
+      setActiveKey(key);
+      setMessages(resume.messages);
+      setResumeActive(true);
+      resumeParentIdRef.current = resume.parentDreamId;
+      resumeInfoRef.current = { title: resume.title, summary: resume.summary };
+      setTimeout(() => {
+        toast({ title: "已带着这段回忆回来" });
+      }, 400);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -907,6 +952,16 @@ export default function DreamSpace() {
               : `[${CHAR_MAP[m.role as CharKey]?.name ?? m.role}] ${m.content}`,
             imageUrl: m.imageUrl ?? null,
           }));
+          // Prepend resume context as system hint on first message after continuing
+          if (resumeInfoRef.current) {
+            const info = resumeInfoRef.current;
+            resumeInfoRef.current = null;
+            historyItems.unshift({
+              role: "assistant",
+              content: `[续写上下文] 这是梦境《${info.title}》的延续。梦境摘要：${info.summary}`,
+              imageUrl: null,
+            });
+          }
 
           const musicCtx = musicContextRef.current;
           // Detect song search intent: asking about artist, release info, story behind the song
@@ -1202,6 +1257,36 @@ export default function DreamSpace() {
       return rest;
     });
 
+    // ── Build music snapshot ───────────────────────────────────────────────
+    const musicSnap: MusicSnapshot | null = (() => {
+      if (!saveMusicSnapshot) return null;
+      if (musicContext) {
+        return {
+          source: musicContext.source,
+          title: musicContext.title,
+          artist: musicContext.artist || undefined,
+          fileName: musicContext.fileName || undefined,
+          trackId: musicContext.source === "builtin" ? music : undefined,
+          mood: musicContext.mood || undefined,
+          volume: bgMusicVolume,
+          isPlaying: musicContext.isPlaying,
+        };
+      }
+      if (ambientSound !== "none") {
+        const labels: Record<AmbientSoundType, string> = {
+          none: "", rain: "雨声", night: "虫鸣夜声", ocean: "海浪",
+        };
+        return {
+          source: "ambient",
+          title: labels[ambientSound],
+          environmentId: ambientSound,
+          volume: bgMusicVolume,
+          isPlaying: true,
+        };
+      }
+      return null;
+    })();
+
     const dream = {
       id: genId(),
       title,
@@ -1212,7 +1297,10 @@ export default function DreamSpace() {
       summary,
       mood: "朦胧",
       coverImage,
+      parentDreamId: resumeParentIdRef.current,
+      musicSnapshot: musicSnap ?? undefined,
     };
+    resumeParentIdRef.current = undefined;
 
     let existing: unknown[] = [];
     try { existing = JSON.parse(localStorage.getItem(DREAMS_STORAGE_KEY) ?? "[]"); } catch { /* ignore */ }
@@ -1559,6 +1647,7 @@ export default function DreamSpace() {
           onAvatarChange={handleAvatarChange}
           typingMsgId={typingMsgId}
           typingContent={typingContent}
+          initialOpen={resumeActive}
         />
       )}
 
@@ -1998,6 +2087,28 @@ export default function DreamSpace() {
                     你可以保存它，也可以让它<br />只停留在这次对话里。
                   </p>
                 </div>
+                {/* Music save toggle — only shown when music is active */}
+                {(musicContext || ambientSound !== "none") && (
+                  <button
+                    onClick={() => setSaveMusicSnapshot(s => !s)}
+                    className="flex items-center gap-2.5 w-full px-1 py-0.5"
+                    style={{ color: saveMusicSnapshot ? `hsl(${hsl} / 0.75)` : "rgba(255,255,255,0.22)" }}
+                  >
+                    <div
+                      className="w-8 h-4 rounded-full flex items-center transition-all duration-300 flex-shrink-0"
+                      style={{
+                        background: saveMusicSnapshot ? `hsl(${hsl} / 0.38)` : "rgba(255,255,255,0.08)",
+                        border: `1px solid ${saveMusicSnapshot ? `hsl(${hsl} / 0.45)` : "rgba(255,255,255,0.12)"}`,
+                        padding: "2px",
+                        justifyContent: saveMusicSnapshot ? "flex-end" : "flex-start",
+                      }}
+                    >
+                      <div className="w-3 h-3 rounded-full" style={{ background: saveMusicSnapshot ? `hsl(${hsl})` : "rgba(255,255,255,0.30)" }} />
+                    </div>
+                    <span className="text-[11px] tracking-wide">保存当时的声音</span>
+                  </button>
+                )}
+
                 <div className="w-full flex flex-col gap-2.5">
                   <motion.button
                     onClick={confirmSave}

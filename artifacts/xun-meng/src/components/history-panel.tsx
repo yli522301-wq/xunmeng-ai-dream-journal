@@ -17,6 +17,7 @@ interface HistoryPanelProps {
   onAvatarChange: (key: CharKey, dataUrl: string) => void;
   typingMsgId?: string | null;
   typingContent?: string;
+  initialOpen?: boolean;
 }
 
 const CONTENT_H = 340;
@@ -227,8 +228,8 @@ function MessageBubble({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange, typingMsgId, typingContent }: HistoryPanelProps) {
-  const [isOpen,            setIsOpen]            = useState(false);
+export function HistoryBottomSheet({ messages, charMap, avatars, onAvatarChange, typingMsgId, typingContent, initialOpen }: HistoryPanelProps) {
+  const [isOpen,            setIsOpen]            = useState(initialOpen ?? false);
   const [avatarUploadTarget, setAvatarUploadTarget] = useState<string | null>(null);
   const scrollRef   = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

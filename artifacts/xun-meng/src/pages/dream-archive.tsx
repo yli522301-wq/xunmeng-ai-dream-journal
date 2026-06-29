@@ -11,7 +11,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, LayoutList, Sparkles } from "lucide-react";
-import type { ChatMessage, CharKey } from "@/pages/dream-space";
+import type { ChatMessage, CharKey, MusicSnapshot } from "@/pages/dream-space";
 // @ts-ignore
 import CircularGallery from "@/components/CircularGallery.jsx";
 
@@ -27,6 +27,8 @@ export interface SavedDream {
   summary: string;
   mood: string;
   coverImage?: string;
+  parentDreamId?: string;
+  musicSnapshot?: MusicSnapshot;
 }
 
 export const CS: Record<string, { name: string; enName: string; hsl: string; dot: string }> = {

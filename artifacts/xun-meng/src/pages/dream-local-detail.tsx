@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Trash2, Play, Pause, Mic, X } from "lucide-react";
-import type { ChatMessage } from "@/pages/dream-space";
+import { ArrowLeft, Trash2, Play, Pause, Mic, X, PenLine, Music2, FolderOpen } from "lucide-react";
+import type { ChatMessage, MusicSnapshot } from "@/pages/dream-space";
 import { DREAMS_STORAGE_KEY, type SavedDream } from "@/pages/dream-archive";
+import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
+import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
+
+const RESUME_STORAGE_KEY = "xm_resume_dream";
 
 const CHAR_STYLES: Record<string, { name: string; enName: string; hsl: string; dot: string }> = {
   daoshen: { name: "岛深", enName: "Daoshan", hsl: "185 70% 55%", dot: "#6B8CFF" },
@@ -285,6 +289,125 @@ function HeroText({ dream, cs }: { dream: SavedDream; cs: { hsl: string } }) {
   );
 }
 
+// ── Music card ───────────────────────────────────────────────────────────────
+function MusicCard({ snapshot, cs }: { snapshot: MusicSnapshot; cs: { hsl: string; dot: string } }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
+  const localAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localInputRef = useRef<HTMLInputElement | null>(null);
+  const { play: playBuiltin, stop: stopBuiltin } = useAmbientMusic();
+  const { play: playAmbient, stop: stopAmbient } = useAmbientSound();
+
+  const handleToggle = () => {
+    if (snapshot.source === "local") {
+      if (!localFileUrl) {
+        localInputRef.current?.click();
+        return;
+      }
+      if (isPlaying) {
+        localAudioRef.current?.pause();
+        setIsPlaying(false);
+      } else {
+        localAudioRef.current?.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+    } else if (snapshot.source === "builtin" && snapshot.trackId) {
+      if (isPlaying) {
+        stopBuiltin();
+        setIsPlaying(false);
+      } else {
+        playBuiltin(snapshot.trackId as MusicType);
+        setIsPlaying(true);
+      }
+    } else if (snapshot.source === "ambient" && snapshot.environmentId) {
+      if (isPlaying) {
+        stopAmbient();
+        setIsPlaying(false);
+      } else {
+        playAmbient(snapshot.environmentId as AmbientSoundType);
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setLocalFileUrl(url);
+    if (localAudioRef.current) {
+      localAudioRef.current.src = url;
+      localAudioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    }
+  };
+
+  const isLocal = snapshot.source === "local";
+  const needsFile = isLocal && !localFileUrl;
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+      style={{
+        background: `hsl(${cs.hsl} / 0.06)`,
+        border: `1px solid hsl(${cs.hsl} / 0.14)`,
+      }}
+    >
+      {/* Play / pick button */}
+      <button
+        onClick={handleToggle}
+        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all"
+        style={{
+          background: isPlaying ? `hsl(${cs.hsl} / 0.22)` : `hsl(${cs.hsl} / 0.10)`,
+          border: `1px solid hsl(${cs.hsl} / 0.22)`,
+        }}
+      >
+        {needsFile
+          ? <FolderOpen size={12} style={{ color: `hsl(${cs.hsl} / 0.80)` }} />
+          : isPlaying
+            ? <Pause size={12} style={{ color: `hsl(${cs.hsl})` }} />
+            : <Play size={12} style={{ color: `hsl(${cs.hsl})`, marginLeft: 1 }} />
+        }
+      </button>
+
+      {/* Info */}
+      <div className="flex flex-col min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <Music2 size={9} style={{ color: `hsl(${cs.hsl} / 0.55)`, flexShrink: 0 }} />
+          <span className="text-[10px] tracking-wider" style={{ color: `hsl(${cs.hsl} / 0.55)` }}>当时的声音</span>
+        </div>
+        <p className="text-[12px] truncate mt-0.5" style={{ color: "rgba(255,255,255,0.65)" }}>
+          {snapshot.title}
+        </p>
+        {snapshot.artist && (
+          <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.28)" }}>{snapshot.artist}</p>
+        )}
+        {needsFile && (
+          <p className="text-[9px] mt-0.5 tracking-wide" style={{ color: "rgba(255,255,255,0.20)" }}>
+            重新选择文件后可播放
+          </p>
+        )}
+      </div>
+
+      {/* Hidden inputs */}
+      {isLocal && (
+        <>
+          <input
+            ref={localInputRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <audio
+            ref={localAudioRef}
+            style={{ display: "none" }}
+            onEnded={() => setIsPlaying(false)}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 export default function DreamLocalDetail() {
   const params = useParams();
@@ -371,16 +494,40 @@ export default function DreamLocalDetail() {
           <ArrowLeft size={13} />
           <span>梦之档案</span>
         </button>
-        <button
-          onClick={handleDelete}
-          className="flex items-center gap-1.5 text-[10px] tracking-wider transition-opacity"
-          style={{ color: "rgba(255,90,90,0.28)" }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
-          onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
-        >
-          <Trash2 size={12} />
-          <span>删除</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              const last8 = dream.messages.slice(-8);
+              const resume = {
+                dreamId: dream.id,
+                parentDreamId: dream.parentDreamId ?? dream.id,
+                title: dream.title,
+                summary: dream.summary,
+                activeCharacter: dream.activeCharacter,
+                messages: last8,
+              };
+              localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(resume));
+              setLocation("/");
+            }}
+            className="flex items-center gap-1.5 text-[10px] tracking-wider transition-opacity"
+            style={{ color: "rgba(255,255,255,0.28)" }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
+            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+          >
+            <PenLine size={12} />
+            <span>续写</span>
+          </button>
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-1.5 text-[10px] tracking-wider transition-opacity"
+            style={{ color: "rgba(255,90,90,0.28)" }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
+            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+          >
+            <Trash2 size={12} />
+            <span>删除</span>
+          </button>
+        </div>
       </div>
 
       {/* Hero */}
@@ -432,6 +579,13 @@ export default function DreamLocalDetail() {
           <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.28)" }}>{cs.enName}</span>
         </div>
       </div>
+
+      {/* Music snapshot card */}
+      {dream.musicSnapshot && (
+        <div className="relative z-10 px-5 mb-5 max-w-xl mx-auto w-full">
+          <MusicCard snapshot={dream.musicSnapshot} cs={cs} />
+        </div>
+      )}
 
       {/* Chat history */}
       <div className="relative z-10 px-5 pb-16 max-w-xl mx-auto w-full flex flex-col gap-3.5">
