@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
-  useGetActiveCharacter, useListCharacters, useActivateCharacter,
   useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
@@ -276,6 +275,18 @@ const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicTyp
 };
 
 const AVATAR_STORAGE_KEY = "xm-avatars";
+const CHAR_KEY_STORAGE_KEY = "xm-active-char";
+
+function loadCharKey(): CharKey {
+  try {
+    const raw = localStorage.getItem(CHAR_KEY_STORAGE_KEY);
+    if (raw === "daoshen" || raw === "muge" || raw === "anuan") return raw;
+  } catch { /* ignore */ }
+  return "anuan";
+}
+function saveCharKey(k: CharKey) {
+  try { localStorage.setItem(CHAR_KEY_STORAGE_KEY, k); } catch { /* ignore */ }
+}
 
 function loadAvatars(): Record<CharKey, string | null> {
   try {
@@ -293,10 +304,8 @@ export default function DreamSpace() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  const { data: activeChar, refetch: refetchActive } = useGetActiveCharacter();
-  const { data: characters } = useListCharacters();
-  const { data: settings }   = useGetAiSettings();
-  const activateMutation     = useActivateCharacter();
+  const [activeKey, setActiveKey]  = useState<CharKey>(loadCharKey);
+  const { data: settings }         = useGetAiSettings();
   const dreamChatMutation    = useDreamChat();
   const createDreamMutation  = useCreateDream();
   const recognizeMutation   = useAiRecognizeImage();
@@ -649,8 +658,7 @@ export default function DreamSpace() {
   };
 
   // ── Derived ──────────────────────────────────────────────────────────────
-  const charConfig    = activeChar ? getCharConfig(activeChar.name) : DREAM_CHARS[1];
-  const activeKey     = charConfig.key;
+  const charConfig    = CHAR_MAP[activeKey] ?? DREAM_CHARS[2];
   const hasAtmosphere = bgTheme !== "void" || ambientSound !== "none" || music !== "none";
 
   const displayReply = useMemo(() => {
@@ -664,10 +672,10 @@ export default function DreamSpace() {
   const hsl        = charConfig.hsl;
 
   // ── Tab switch ───────────────────────────────────────────────────────────
-  const handleTabClick = async (id: string) => {
-    if (activeChar?.id === id) return;
-    await activateMutation.mutateAsync({ id });
-    refetchActive();
+  const handleTabClick = (key: CharKey) => {
+    if (activeKey === key) return;
+    setActiveKey(key);
+    saveCharKey(key);
     // Intentionally do NOT clear messages — shared thread
   };
 
@@ -701,7 +709,7 @@ export default function DreamSpace() {
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = activeChar?.language === "en" ? "en-US" : "zh-CN";
+    u.lang = activeKey === "daoshen" ? "zh-CN" : "en-US";
     u.rate = 0.88;
     window.speechSynthesis.speak(u);
   };
@@ -837,19 +845,16 @@ export default function DreamSpace() {
     });
   };
 
-  // ── Get DB character system prompt by key ─────────────────────────────────
+  // ── Character system prompt from static config ────────────────────────────
   const getSystemPrompt = useCallback((key: CharKey): string => {
-    const nameMatch = CHAR_MAP[key].nameMatch;
-    const dbChar = characters?.find(c => c.name.includes(nameMatch));
-    return dbChar?.systemPrompt ?? CHAR_MAP[key].stylePrompt;
-  }, [characters]);
+    return CHAR_MAP[key]?.stylePrompt ?? CHAR_MAP.anuan.stylePrompt;
+  }, []);
 
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSend = async (text?: string, voiceData?: { duration?: number }) => {
     const msg = (text ?? inputText).trim();
     const imgUrl = text ? null : pendingImageDataUrl;
     if (!msg && !imgUrl && !voiceData) return;
-    if (!activeChar) return;
     // Front-end length guard
     if (msg.length > 1000) {
       toast({ title: "这段话有点长，可以分成几次慢慢告诉我。" });
@@ -1245,18 +1250,6 @@ export default function DreamSpace() {
     }
   };
 
-  // ── Loading ────────────────────────────────────────────────────────────────
-  if (!activeChar) {
-    return (
-      <div className="min-h-screen bg-[#05050A] text-white flex items-center justify-center">
-        <motion.div animate={{ opacity: [0.15, 0.5, 0.15] }} transition={{ duration: 2, repeat: Infinity }}
-          className="text-[11px] tracking-[0.3em]" style={{ color: "rgba(255,255,255,0.3)" }}>
-          正在感应…
-        </motion.div>
-      </div>
-    );
-  }
-
   const hasMessages = messages.length > 0;
 
   return (
@@ -1300,13 +1293,12 @@ export default function DreamSpace() {
         {/* Character tabs */}
         <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
           style={{ background: "rgba(255,255,255,0.03)" }}>
-          {characters?.map(c => {
-            const active = activeChar.id === c.id;
-            const cfg    = getCharConfig(c.name);
+          {DREAM_CHARS.map(cfg => {
+            const active = activeKey === cfg.key;
             return (
               <button
-                key={c.id}
-                onClick={() => handleTabClick(c.id)}
+                key={cfg.key}
+                onClick={() => handleTabClick(cfg.key)}
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 500,
@@ -1324,7 +1316,7 @@ export default function DreamSpace() {
                   boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
                   transition: "background-color 0.3s ease",
                 }} />
-                {c.name.replace(/[a-zA-Z\s]/g, "")}
+                {cfg.name}
               </button>
             );
           })}
@@ -1381,7 +1373,7 @@ export default function DreamSpace() {
         {/* Name + subtitle — re-animate when character changes */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeChar.id}
+            key={activeKey}
             initial={{ opacity: 0, y: 7 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -5 }}
@@ -1548,7 +1540,7 @@ export default function DreamSpace() {
               </motion.div>
             ) : (
               <motion.div
-                key={`welcome-${activeChar.id}`}
+                key={`welcome-${activeKey}`}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
                 className="w-full"

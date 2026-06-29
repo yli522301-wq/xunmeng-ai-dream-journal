@@ -637,28 +637,31 @@ router.post(
         return parts;
       };
 
-      // Music context — only inject when music is actively playing
+      // Music context — inject whenever a track is known (playing or paused)
       let musicNote = "";
-      if (musicContext?.isPlaying) {
+      if (musicContext?.title || musicContext?.fileName) {
         const title = musicContext.title || (musicContext.fileName ? musicContext.fileName.replace(/\.[^.]+$/, "") : "未知歌曲");
         const artist = musicContext.artist || "";
         const fileName = musicContext.fileName || "";
+        const isNowPlaying = musicContext.isPlaying ?? false;
         musicNote = `
 
-系统已确认用户当前正在播放本地音乐：
+系统提示：用户${isNowPlaying ? "当前正在播放" : "已选择了"}本地音乐：
 歌曲名称：${title}
 ${artist ? `歌手：${artist}\n` : ""}${fileName ? `文件名：${fileName}\n` : ""}
-你没有直接听到音频内容，但以上歌曲信息由播放器提供，是真实可信的。你知道用户当前正在播放这首歌。
+你没有直接听到音频内容，但以上歌曲信息由播放器提供，是真实可信的。
+
+${isNowPlaying
+  ? `你知道用户当前正在播放这首歌，可以自然地说：
+- 你现在正在播放《${title}》
+- 这首歌对你来说是不是有某种特别的感觉
+- 你是在什么情况下想听它的`
+  : `用户选择了这首歌但目前没有在播放。你只能说"你选了"或"你上传了"这首歌，绝对不能说"你正在播放"。`}
 
 不要回复：
 - 我听不到这首歌
 - 我不知道你在播放什么
 - 我无法识别这首音乐
-
-可以自然地说：
-- 你现在正在播放《${title}》
-- 这首歌对你来说是不是有某种特别的感觉
-- 你是在什么情况下想听它的
 
 不要猜测歌词、旋律或歌曲背后的具体故事，除非用户主动提供。不要每次回复都强行提到音乐。`;
       }
