@@ -42,12 +42,19 @@ export function sessionMiddleware(req: Request, res: Response, next: NextFunctio
 
   if (!sessionId || !/^[0-9a-f]{64}$/.test(sessionId)) {
     sessionId = generateSessionId();
-    const isProduction = process.env.NODE_ENV === "production";
+    // req.secure is true when Express's "trust proxy" setting is enabled and the
+    // upstream request arrived over HTTPS (Replit's edge proxy always does this).
+    // Cross-site iframe contexts (e.g. Replit preview pane embedded in replit.com)
+    // require SameSite=None; Secure so the browser sends the cookie on every
+    // same-origin fetch — SameSite=Strict blocks cookies in cross-site iframes
+    // even when the fetch itself is to the same domain, causing a new anonymous
+    // session to be minted on every request.
+    const isHttps = req.secure;
     res.setHeader("Set-Cookie", serializeCookie(COOKIE_NAME, sessionId, {
       maxAge: ONE_YEAR_MS,
       httpOnly: true,
-      secure: isProduction,
-      sameSite: "Strict",
+      secure: isHttps,
+      sameSite: isHttps ? "None" : "Lax",
     }));
   }
 

@@ -665,9 +665,13 @@ export default function DreamSpace() {
   // ── Tab switch ───────────────────────────────────────────────────────────
   const handleTabClick = async (id: string) => {
     if (activeChar?.id === id) return;
-    await activateMutation.mutateAsync({ id });
-    refetchActive();
-    // Intentionally do NOT clear messages — shared thread
+    try {
+      await activateMutation.mutateAsync({ id });
+      refetchActive();
+      // Intentionally do NOT clear messages — shared thread
+    } catch {
+      toast({ title: "切换人格失败，请刷新后重试。", variant: "destructive" });
+    }
   };
 
   // ── Keep TTS refs in sync with state ─────────────────────────────────────
