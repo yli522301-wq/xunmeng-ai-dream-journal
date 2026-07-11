@@ -53,6 +53,16 @@ git push origin main
 
 ## 3. 推荐部署架构
 
+### 已配置：GitHub Pages 前端 Demo
+
+仓库已配置 GitHub Actions，会在 `main` 分支更新时自动构建前端并发布到：
+
+```text
+https://yli522301-wq.github.io/xunmeng-ai-dream-journal/
+```
+
+GitHub Pages 只能托管静态前端，不能运行 Express API。需要完整 AI/API 能力时，继续部署下面的后端服务，并让前端请求指向后端公网地址。
+
 ### 方案 A：前后端分开部署
 
 这是最稳妥的比赛 Demo 方案。

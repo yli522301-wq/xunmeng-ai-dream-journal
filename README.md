@@ -6,7 +6,7 @@
 
 部署完成后把线上地址放在这里：
 
-- Demo: 待填写
+- Demo: https://yli522301-wq.github.io/xunmeng-ai-dream-journal/
 - GitHub: https://github.com/yli522301-wq/xunmeng-ai-dream-journal
 
 ## 核心功能
