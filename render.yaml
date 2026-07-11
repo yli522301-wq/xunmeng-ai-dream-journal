@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: xunmeng-api
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: |
+      corepack enable pnpm
+      pnpm install --frozen-lockfile
+      pnpm --filter @workspace/api-server run build
+    startCommand: cd artifacts/api-server && node --enable-source-maps ./dist/index.mjs
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AI_MODEL_NAME
+        value: gpt-4o
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: VOXCPM_TTS_URL
+        sync: false
+      - key: VOXCPM_TIMEOUT_MS
+        value: "720000"

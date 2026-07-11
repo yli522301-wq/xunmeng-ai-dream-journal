@@ -19,6 +19,7 @@ import { MineradioParticles } from "@/components/mineradio-particles";
 import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
+import { API_BASE } from "@/lib/api";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CharKey = "daoshen" | "muge" | "anuan";
@@ -960,7 +961,7 @@ export default function DreamSpace() {
     if (!audioUrl) {
       setTtsStatus("loading");
       try {
-        const resp = await fetch("/api/ai/tts", {
+        const resp = await fetch(`${API_BASE}/api/ai/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1287,7 +1288,7 @@ export default function DreamSpace() {
 
           try {
             const audioBase64 = await blobToBase64(audioBlob);
-            const resp = await fetch("/api/ai/transcribe", {
+            const resp = await fetch(`${API_BASE}/api/ai/transcribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ audioBase64, mimeType: audioBlob.type || "audio/webm" }),
@@ -1392,7 +1393,7 @@ export default function DreamSpace() {
     if (!q) return;
     setNeteaseLoading(true);
     try {
-      const resp = await fetch(`/api/music/netease/search?keywords=${encodeURIComponent(q)}&limit=5`);
+      const resp = await fetch(`${API_BASE}/api/music/netease/search?keywords=${encodeURIComponent(q)}&limit=5`);
       const data = await resp.json() as { songs?: NeteaseSong[]; error?: string };
       if (!resp.ok) throw new Error(data.error || "搜索失败");
       setNeteaseSongs(data.songs ?? []);
@@ -1407,7 +1408,7 @@ export default function DreamSpace() {
 
   const playNeteaseSong = async (song: NeteaseSong) => {
     try {
-      const resp = await fetch(`/api/music/netease/song-url?id=${encodeURIComponent(song.id)}`);
+      const resp = await fetch(`${API_BASE}/api/music/netease/song-url?id=${encodeURIComponent(song.id)}`);
       const data = await resp.json() as { proxiedUrl?: string; message?: string; error?: string };
       if (!resp.ok || !data.proxiedUrl) {
         toast({ title: data.message || "这首歌暂时无法播放，可能受版权或会员限制。" });
@@ -1419,7 +1420,7 @@ export default function DreamSpace() {
       const artist = song.artists.join(" / ");
       setBgMusicUrl(data.proxiedUrl);
       setBgMusicName(artist ? `${title} · ${artist}` : title);
-      setBgMusicCover(song.cover ? `/api/music/netease/cover?url=${encodeURIComponent(song.cover)}` : null);
+      setBgMusicCover(song.cover ? `${API_BASE}/api/music/netease/cover?url=${encodeURIComponent(song.cover)}` : null);
 
       const ctx: MusicContext = {
         source: "local",

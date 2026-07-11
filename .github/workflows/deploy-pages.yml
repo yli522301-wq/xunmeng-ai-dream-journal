@@ -34,7 +34,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        run: PORT=5173 BASE_PATH=/xunmeng-ai-dream-journal/ pnpm --filter @workspace/xun-meng run build
+        run: PORT=5173 BASE_PATH=/xunmeng-ai-dream-journal/ VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }} pnpm --filter @workspace/xun-meng run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
