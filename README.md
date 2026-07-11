@@ -4,10 +4,51 @@
 
 ## 在线参赛链接
 
-部署完成后把线上地址放在这里：
-
 - Demo: https://yli522301-wq.github.io/xunmeng-ai-dream-journal/
 - GitHub: https://github.com/yli522301-wq/xunmeng-ai-dream-journal
+
+## 给评委的说明：为什么打开 Demo 链接看不到 AI 功能
+
+**Demo 页面是纯前端静态页面**，托管在 GitHub Pages 上。AI 聊天、梦境整理、语音合成、图片识别等功能需要后端 API server 在运行——它不在 GitHub Pages 里。
+
+简单来说：
+
+> 这个项目 = 前端（已部署到 GitHub Pages）+ 后端（需要单独运行）+ AI 服务（OpenAI / ElevenLabs / VoxCPM）+ 数据库
+
+评委看到的 Demo 链接可以正常展示 UI 和交互流程，但 AI 回复不会返回真实数据，因为后端没有启动。
+
+### 评委如何完整体验全部功能
+
+**方式一：给我们发 API Key，我们帮你跑（推荐最快）**
+
+把以下 Key 发给我们（比赛群或私聊）：
+- `OPENAI_API_KEY`
+- `ELEVENLABS_API_KEY`
+
+我们会立刻部署后端并回传一个可以直接打开测试的完整链接。
+
+**方式二：自己本地启动（10 分钟）**
+
+```bash
+git clone https://github.com/yli522301-wq/xunmeng-ai-dream-journal.git
+cd xunmeng-ai-dream-journal
+cp .env.example .env
+# 编辑 .env，填入 OPENAI_API_KEY 和 ELEVENLABS_API_KEY（必填）
+pnpm install
+pnpm --filter @workspace/api-server run dev   # 终端 1：启动后端
+PORT=5173 BASE_PATH=/ pnpm --filter @workspace/xun-meng run dev  # 终端 2：启动前端
+```
+
+打开 `http://localhost:5173` 即可完整体验。
+
+**方式三：在线评审（只看 UI 和代码）**
+
+即使没有后端，你也可以：
+- 浏览页面结构、动画、角色系统
+- 查看源码和工程架构
+- 阅读 [DEPLOYMENT.md](./DEPLOYMENT.md) 了解部署方案
+- 查看 [SECURITY.md](./SECURITY.md) 了解安全实践
+- Demo 页面会展示友好的错误提示而非崩溃，表明 API 未连接
 
 ## 核心功能
 
