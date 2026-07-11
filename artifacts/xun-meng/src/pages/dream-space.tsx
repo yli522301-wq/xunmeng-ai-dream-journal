@@ -961,7 +961,7 @@ export default function DreamSpace() {
     if (!audioUrl) {
       setTtsStatus("loading");
       try {
-        const resp = await fetch(`${API_BASE}/api/ai/tts", {
+        const resp = await fetch(`${API_BASE}/api/ai/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1288,7 +1288,7 @@ export default function DreamSpace() {
 
           try {
             const audioBase64 = await blobToBase64(audioBlob);
-            const resp = await fetch(`${API_BASE}/api/ai/transcribe", {
+            const resp = await fetch(`${API_BASE}/api/ai/transcribe`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ audioBase64, mimeType: audioBlob.type || "audio/webm" }),
@@ -2302,7 +2302,7 @@ export default function DreamSpace() {
                           >
                             {song.cover ? (
                               <img
-                                src={`/api/music/netease/cover?url=${encodeURIComponent(song.cover)}`}
+                                src={`${API_BASE}/api/music/netease/cover?url=${encodeURIComponent(song.cover)}`}
                                 alt=""
                                 className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
                               />
