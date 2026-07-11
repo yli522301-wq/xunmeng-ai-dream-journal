@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { db } from "@workspace/db";
+import { db, hasDatabase } from "@workspace/db";
 import {
   anonymousSessionsTable,
   usageLimitsTable,
@@ -106,6 +106,12 @@ export async function checkMessageLength(req: Request, res: Response, next: Next
 }
 
 export async function checkRateLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!hasDatabase) {
+    (req as Request & { anonymousId: string }).anonymousId = "local-dev";
+    next();
+    return;
+  }
+
   const { id: anonId } = await getOrCreateSession(req);
   (req as Request & { anonymousId: string }).anonymousId = anonId;
 
@@ -155,6 +161,11 @@ export async function checkRateLimit(req: Request, res: Response, next: NextFunc
 }
 
 export async function checkDailyChatLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!hasDatabase) {
+    next();
+    return;
+  }
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) {
     next();
@@ -186,6 +197,11 @@ export async function checkDailyChatLimit(req: Request, res: Response, next: Nex
 }
 
 export async function checkDailySongLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!hasDatabase) {
+    next();
+    return;
+  }
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) {
     next();
@@ -218,6 +234,8 @@ export async function checkDailySongLimit(req: Request, res: Response, next: Nex
 
 /** Inline version for route-level conditional checks (returns boolean instead of Express next). */
 export async function checkDailySongLimitInline(req: Request): Promise<boolean> {
+  if (!hasDatabase) return true;
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) return true;
 
@@ -263,6 +281,8 @@ export async function checkConcurrentRequest(req: Request, res: Response, next: 
 }
 
 export async function incrementChatCount(req: Request): Promise<void> {
+  if (!hasDatabase) return;
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) return;
 
@@ -299,6 +319,8 @@ export async function incrementChatCount(req: Request): Promise<void> {
 }
 
 export async function incrementSongSearchCount(req: Request): Promise<void> {
+  if (!hasDatabase) return;
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) return;
 
@@ -341,6 +363,8 @@ export async function logRequest(
   tokenUsage?: number,
   errorType?: string
 ): Promise<void> {
+  if (!hasDatabase) return;
+
   const anonId = (req as Request & { anonymousId: string }).anonymousId;
   if (!anonId) return;
 

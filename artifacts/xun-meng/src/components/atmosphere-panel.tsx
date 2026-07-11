@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
-import type { BgTheme } from "./ambient-bg";
+import { RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import type { AmbientVisualSettings, BgTheme } from "./ambient-bg";
 import type { AmbientSoundType } from "../hooks/use-ambient-sound";
 import type { MusicType } from "../hooks/use-ambient-music";
+import { useState } from "react";
 
 interface AtmospherePanelProps {
   open: boolean;
@@ -12,6 +13,9 @@ interface AtmospherePanelProps {
   onTheme: (t: BgTheme) => void;
   onSound: (s: AmbientSoundType) => void;
   onMusic: (m: MusicType) => void;
+  visualSettings: AmbientVisualSettings;
+  onVisualSettingsChange: (settings: AmbientVisualSettings) => void;
+  onVisualSettingsReset: (theme: BgTheme) => void;
   onClose: () => void;
 }
 
@@ -72,7 +76,81 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AtmospherePanel({ open, theme, sound, music, onTheme, onSound, onMusic, onClose }: AtmospherePanelProps) {
+function SettingSlider({
+  label,
+  value,
+  min = 0.35,
+  max = 1.8,
+  step = 0.05,
+  leftLabel,
+  rightLabel,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  leftLabel: string;
+  rightLabel: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] tracking-wide" style={{ color: "rgba(255,255,255,0.42)" }}>{label}</span>
+        <span className="text-[9px] tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>
+          {Math.round(value * 100)}%
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={e => onChange(Number(e.currentTarget.value))}
+        className="w-full accent-white/70"
+      />
+      <div className="flex justify-between text-[8px] tracking-wide" style={{ color: "rgba(255,255,255,0.16)" }}>
+        <span>{leftLabel}</span>
+        <span>{rightLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+export function AtmospherePanel({
+  open,
+  theme,
+  sound,
+  music,
+  visualSettings,
+  onTheme,
+  onSound,
+  onMusic,
+  onVisualSettingsChange,
+  onVisualSettingsReset,
+  onClose,
+}: AtmospherePanelProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const updateStars = (key: keyof AmbientVisualSettings["stars"], value: number) => {
+    onVisualSettingsChange({
+      ...visualSettings,
+      stars: { ...visualSettings.stars, [key]: value },
+    });
+  };
+
+  const updateRain = (key: keyof AmbientVisualSettings["rain"], value: number) => {
+    onVisualSettingsChange({
+      ...visualSettings,
+      rain: { ...visualSettings.rain, [key]: value },
+    });
+  };
+
+  const canTune = theme === "stars" || theme === "rain";
+
   return (
     <AnimatePresence>
       {open && (
@@ -111,12 +189,27 @@ export function AtmospherePanel({ open, theme, sound, music, onTheme, onSound, o
                 <p className="text-[10px] tracking-[0.22em] uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>
                   氛围空间
                 </p>
-                <button onClick={onClose} className="transition-colors"
-                  style={{ color: "rgba(255,255,255,0.20)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.55)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.20)")}>
-                  <X size={15} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSettingsOpen(v => !v)}
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-all"
+                    style={{
+                      color: settingsOpen ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.24)",
+                      background: settingsOpen ? "rgba(255,255,255,0.075)" : "rgba(255,255,255,0.025)",
+                      border: "1px solid rgba(255,255,255,0.055)",
+                    }}
+                    title="调节当前场景"
+                  >
+                    <SlidersHorizontal size={12} />
+                    <span className="text-[9px] tracking-wider">调节</span>
+                  </button>
+                  <button onClick={onClose} className="transition-colors"
+                    style={{ color: "rgba(255,255,255,0.20)" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.55)")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.20)")}>
+                    <X size={15} />
+                  </button>
+                </div>
               </div>
 
               {/* ① Scene */}
@@ -129,6 +222,100 @@ export function AtmospherePanel({ open, theme, sound, music, onTheme, onSound, o
                   ))}
                 </div>
               </div>
+
+              <AnimatePresence>
+                {settingsOpen && (
+                  <motion.div
+                    className="mb-4 rounded-2xl px-3.5 py-3"
+                    style={{
+                      background: "rgba(255,255,255,0.035)",
+                      border: "1px solid rgba(255,255,255,0.055)",
+                    }}
+                    initial={{ opacity: 0, y: -6, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: "auto" }}
+                    exit={{ opacity: 0, y: -6, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-[10px] tracking-[0.18em] uppercase" style={{ color: "rgba(255,255,255,0.36)" }}>
+                          场景参数
+                        </p>
+                        <p className="text-[9px] mt-1" style={{ color: "rgba(255,255,255,0.18)" }}>
+                          {canTune ? "滑动后立即生效" : "这个场景暂时没有可调参数"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => onVisualSettingsReset(theme)}
+                        disabled={!canTune}
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition-all disabled:opacity-30"
+                        style={{
+                          color: "rgba(255,255,255,0.36)",
+                          background: "rgba(255,255,255,0.035)",
+                          border: "1px solid rgba(255,255,255,0.055)",
+                        }}
+                      >
+                        <RotateCcw size={11} />
+                        <span className="text-[9px] tracking-wide">默认</span>
+                      </button>
+                    </div>
+
+                    {theme === "stars" && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <SettingSlider
+                          label="星空密度"
+                          value={visualSettings.stars.density}
+                          leftLabel="稀疏"
+                          rightLabel="星河"
+                          onChange={v => updateStars("density", v)}
+                        />
+                        <SettingSlider
+                          label="星星亮度"
+                          value={visualSettings.stars.brightness}
+                          leftLabel="暗"
+                          rightLabel="亮"
+                          onChange={v => updateStars("brightness", v)}
+                        />
+                        <SettingSlider
+                          label="运动速度"
+                          value={visualSettings.stars.speed}
+                          max={2.2}
+                          leftLabel="慢"
+                          rightLabel="快"
+                          onChange={v => updateStars("speed", v)}
+                        />
+                      </div>
+                    )}
+
+                    {theme === "rain" && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <SettingSlider
+                          label="雨滴强度"
+                          value={visualSettings.rain.intensity}
+                          leftLabel="少雨"
+                          rightLabel="大雨"
+                          onChange={v => updateRain("intensity", v)}
+                        />
+                        <SettingSlider
+                          label="雨滴亮度"
+                          value={visualSettings.rain.brightness}
+                          leftLabel="暗"
+                          rightLabel="亮"
+                          onChange={v => updateRain("brightness", v)}
+                        />
+                        <SettingSlider
+                          label="下落速度"
+                          value={visualSettings.rain.speed}
+                          max={2.2}
+                          leftLabel="慢"
+                          rightLabel="快"
+                          onChange={v => updateRain("speed", v)}
+                        />
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Divider */}
               <div className="w-full h-px mb-4" style={{ background: "rgba(255,255,255,0.04)" }} />

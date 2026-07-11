@@ -405,6 +405,7 @@ export const DreamChatBody = zod.object({
   "mood": zod.string().optional(),
   "isPlaying": zod.boolean().optional()
 }).nullish(),
+  "dialect": zod.enum(['standard', 'sichuan', 'shaanxi', 'cantonese']).optional().describe('岛深专属方言模式：普通话、四川话、陕西话、粤语'),
   "songSearch": zod.boolean().default(dreamChatBodySongSearchDefault).describe('当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制')
 })
 
@@ -417,5 +418,4 @@ export const DreamChatResponse = zod.object({
   "url": zod.string()
 })).nullish().describe('Search sources from web_search, present only when song search was triggered')
 })
-
 

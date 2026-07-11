@@ -50,9 +50,23 @@ Thumbs.db
 
 .env
 .env.*
+!.env.example
 node_modules/
 .local/
 .cache/
 .agents/
 .canvas/
 *.zip
+
+# Local Python/runtime artifacts
+venv/
+__pycache__/
+*.pyc
+
+# Local generated media and model weights
+test_output/
+pretrained_models/
+
+# Optional local TTS service checkout. Keep it outside this repo or document it
+# as an external dependency instead of committing a nested Git repository.
+VoxCPM/

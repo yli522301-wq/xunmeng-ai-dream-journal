@@ -7,10 +7,15 @@ import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOp
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
-import { AudioWaveform } from "@/components/audio-waveform";
 import { HistoryBottomSheet } from "@/components/history-panel";
 import { AtmospherePanel } from "@/components/atmosphere-panel";
-import { AmbientBg, type BgTheme } from "@/components/ambient-bg";
+import {
+  AmbientBg,
+  DEFAULT_AMBIENT_VISUAL_SETTINGS,
+  type AmbientVisualSettings,
+  type BgTheme,
+} from "@/components/ambient-bg";
+import { MineradioParticles } from "@/components/mineradio-particles";
 import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
@@ -19,8 +24,28 @@ import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackgro
 export type CharKey = "daoshen" | "muge" | "anuan";
 export type ResponseMode = "solo" | "multi" | "cross";
 export type VoiceStatus = "idle" | "requesting" | "recording" | "processing" | "error";
+type DaoshenDialect = "standard" | "sichuan" | "shaanxi" | "cantonese";
 
 const FALLBACK_TRANSCRIPT = "我梦到自己一直在赶路，但怎么都赶不上。";
+const DAOSHEN_DIALECT_STORAGE_KEY = "xm-daoshen-dialect";
+const DAOSHEN_DIALECTS: Array<{ key: DaoshenDialect; label: string; hint: string }> = [
+  { key: "standard",  label: "普通话", hint: "冷静直接" },
+  { key: "sichuan",   label: "四川话", hint: "莫慌，慢慢说" },
+  { key: "shaanxi",   label: "陕西话", hint: "甭急，咱慢慢看" },
+  { key: "cantonese", label: "粤语",   hint: "唔使急，慢慢讲" },
+];
+
+function loadDaoshenDialect(): DaoshenDialect {
+  try {
+    const raw = localStorage.getItem(DAOSHEN_DIALECT_STORAGE_KEY);
+    if (raw === "standard" || raw === "sichuan" || raw === "shaanxi" || raw === "cantonese") return raw;
+  } catch { /* ignore */ }
+  return "standard";
+}
+
+function saveDaoshenDialect(k: DaoshenDialect) {
+  try { localStorage.setItem(DAOSHEN_DIALECT_STORAGE_KEY, k); } catch { /* ignore */ }
+}
 
 export interface ChatMessage {
   id: string;
@@ -61,6 +86,16 @@ export interface MusicSnapshot {
   isPlaying?: boolean;
 }
 
+interface NeteaseSong {
+  id: string;
+  name: string;
+  artists: string[];
+  album: string;
+  cover: string;
+  duration: number;
+  source: "netease";
+}
+
 export interface DreamCharConfig {
   key: CharKey;
   nameMatch: string;
@@ -85,7 +120,7 @@ const DREAM_CHARS: DreamCharConfig[] = [
     enName: "Daoshan",
     particleColor: "#6B8CFF",
     glowColor: "rgba(107,140,255,0.28)",
-    companionColor: "teal",
+    companionColor: "indigo",
     hsl: "185 70% 55%",
     subtitle: "潜入梦的深处",
     hint: "你可以从一个画面开始，我会陪你慢慢往下潜。",
@@ -99,7 +134,7 @@ const DREAM_CHARS: DreamCharConfig[] = [
     enName: "Muge",
     particleColor: "#9B7CFF",
     glowColor: "rgba(155,124,255,0.28)",
-    companionColor: "indigo",
+    companionColor: "purple",
     hsl: "240 70% 65%",
     subtitle: "你可以从任何地方开始",
     hint: "梦境就像一面镜子，有时映出的是我们白天来不及细想的事情。",
@@ -251,6 +286,51 @@ function cleanForTts(text: string): string {
     .trim();
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",").pop() ?? "" : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+const TTS_PLAYBACK_PROFILE: Record<CharKey, {
+  playbackRate: number;
+  preservePitch: boolean;
+  hint: string;
+}> = {
+  anuan: {
+    playbackRate: 0.96,
+    preservePitch: false,
+    hint: "温柔低声 · 陪伴感",
+  },
+  muge: {
+    playbackRate: 0.98,
+    preservePitch: true,
+    hint: "自然叙述",
+  },
+  daoshen: {
+    playbackRate: 0.96,
+    preservePitch: false,
+    hint: "低稳解析",
+  },
+};
+
+function applyTtsPlaybackProfile(audio: HTMLAudioElement, charKey: CharKey) {
+  const profile = TTS_PLAYBACK_PROFILE[charKey] ?? TTS_PLAYBACK_PROFILE.anuan;
+  audio.playbackRate = profile.playbackRate;
+
+  // Lowering the playback rate only sounds deeper if pitch preservation is disabled.
+  // Browser support differs, so set all common spellings.
+  (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = profile.preservePitch;
+  (audio as HTMLAudioElement & { mozPreservesPitch?: boolean }).mozPreservesPitch = profile.preservePitch;
+  (audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = profile.preservePitch;
+}
+
 // ── Image compression utility ──────────────────────────────────────────────
 /**
  * Resize + compress an image DataURL to a JPEG of at most `maxWidth` px wide.
@@ -289,6 +369,38 @@ const SCENE_DEFAULTS: Record<BgTheme, { sound: AmbientSoundType; music: MusicTyp
 
 const AVATAR_STORAGE_KEY = "xm-avatars";
 const CHAR_KEY_STORAGE_KEY = "xm-active-char";
+const AMBIENT_VISUAL_STORAGE_KEY = "xm-ambient-visual-settings";
+
+function clampSetting(value: unknown, fallback: number, min = 0.35, max = 2.2): number {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function loadAmbientVisualSettings(): AmbientVisualSettings {
+  try {
+    const raw = localStorage.getItem(AMBIENT_VISUAL_STORAGE_KEY);
+    if (!raw) return DEFAULT_AMBIENT_VISUAL_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<AmbientVisualSettings>;
+    return {
+      stars: {
+        density: clampSetting(parsed.stars?.density, DEFAULT_AMBIENT_VISUAL_SETTINGS.stars.density, 0.35, 1.75),
+        brightness: clampSetting(parsed.stars?.brightness, DEFAULT_AMBIENT_VISUAL_SETTINGS.stars.brightness, 0.35, 1.85),
+        speed: clampSetting(parsed.stars?.speed, DEFAULT_AMBIENT_VISUAL_SETTINGS.stars.speed, 0.35, 2.2),
+      },
+      rain: {
+        intensity: clampSetting(parsed.rain?.intensity, DEFAULT_AMBIENT_VISUAL_SETTINGS.rain.intensity, 0.35, 1.8),
+        brightness: clampSetting(parsed.rain?.brightness, DEFAULT_AMBIENT_VISUAL_SETTINGS.rain.brightness, 0.35, 1.8),
+        speed: clampSetting(parsed.rain?.speed, DEFAULT_AMBIENT_VISUAL_SETTINGS.rain.speed, 0.35, 2.2),
+      },
+    };
+  } catch {
+    return DEFAULT_AMBIENT_VISUAL_SETTINGS;
+  }
+}
+
+function saveAmbientVisualSettings(settings: AmbientVisualSettings) {
+  try { localStorage.setItem(AMBIENT_VISUAL_STORAGE_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
+}
 
 function loadCharKey(): CharKey {
   try {
@@ -319,6 +431,7 @@ export default function DreamSpace() {
   const search = useSearch();
 
   const [activeKey, setActiveKey]  = useState<CharKey>(loadCharKey);
+  const [daoshenDialect, setDaoshenDialectState] = useState<DaoshenDialect>(loadDaoshenDialect);
   const { data: settings }         = useGetAiSettings();
   const dreamChatMutation    = useDreamChat();
   const createDreamMutation  = useCreateDream();
@@ -336,8 +449,12 @@ export default function DreamSpace() {
   const [bgMusicOpen,    setBgMusicOpen]    = useState(false);
   const [bgMusicUrl,     setBgMusicUrl]     = useState<string | null>(null);
   const [bgMusicName,    setBgMusicName]    = useState("");
+  const [bgMusicCover,   setBgMusicCover]   = useState<string | null>(null);
   const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const [bgMusicVolume,  setBgMusicVolume]  = useState(0.3);
+  const [neteaseQuery,   setNeteaseQuery]   = useState("");
+  const [neteaseSongs,   setNeteaseSongs]   = useState<NeteaseSong[]>([]);
+  const [neteaseLoading, setNeteaseLoading] = useState(false);
   const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
   const [musicContext, setMusicContext] = useState<MusicContext | null>(null);
   const musicContextRef = useRef<MusicContext | null>(null);
@@ -531,6 +648,7 @@ export default function DreamSpace() {
   const [bgTheme,        setBgTheme]        = useState<BgTheme>("void");
   const [ambientSound,   setAmbientSound]   = useState<AmbientSoundType>("none");
   const [music,          setMusic]          = useState<MusicType>("none");
+  const [ambientVisualSettings, setAmbientVisualSettings] = useState<AmbientVisualSettings>(loadAmbientVisualSettings);
 
   const { play: playAmbient, stop: stopAmbient } = useAmbientSound();
   const { play: playMusic,   stop: stopMusic }   = useAmbientMusic();
@@ -705,6 +823,7 @@ export default function DreamSpace() {
 
   // Persist avatars
   useEffect(() => { saveAvatars(avatars); }, [avatars]);
+  useEffect(() => { saveAmbientVisualSettings(ambientVisualSettings); }, [ambientVisualSettings]);
 
   const handleAvatarChange = useCallback((key: CharKey, dataUrl: string) => {
     setAvatars(prev => ({ ...prev, [key]: dataUrl }));
@@ -738,6 +857,20 @@ export default function DreamSpace() {
       musicContextRef.current = ctx;
     }
   };
+  const handleAmbientVisualReset = (themeToReset: BgTheme) => {
+    if (themeToReset === "stars") {
+      setAmbientVisualSettings(prev => ({
+        ...prev,
+        stars: { ...DEFAULT_AMBIENT_VISUAL_SETTINGS.stars },
+      }));
+    }
+    if (themeToReset === "rain") {
+      setAmbientVisualSettings(prev => ({
+        ...prev,
+        rain: { ...DEFAULT_AMBIENT_VISUAL_SETTINGS.rain },
+      }));
+    }
+  };
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const charConfig    = CHAR_MAP[activeKey] ?? DREAM_CHARS[2];
@@ -751,6 +884,7 @@ export default function DreamSpace() {
   }, [messages, activeKey]);
 
   const isSpeaking = (!!displayReply && !isThinking) || !!typingMsgId;
+  const orbIsSpeaking = ttsStatus === "playing";
   const hsl        = charConfig.hsl;
 
   // ── Tab switch ───────────────────────────────────────────────────────────
@@ -759,6 +893,11 @@ export default function DreamSpace() {
     setActiveKey(key);
     saveCharKey(key);
     // Intentionally do NOT clear messages — shared thread
+  };
+
+  const setDaoshenDialect = (dialect: DaoshenDialect) => {
+    setDaoshenDialectState(dialect);
+    saveDaoshenDialect(dialect);
   };
 
   // ── Keep TTS refs in sync with state ─────────────────────────────────────
@@ -796,7 +935,7 @@ export default function DreamSpace() {
     window.speechSynthesis.speak(u);
   };
 
-  // ── ElevenLabs TTS playback (all characters) ─────────────────────────
+  // ── TTS playback (VoxCPM dialects for 岛深, ElevenLabs fallback) ─────
   const playTtsSafe = async (
     msgId: string,
     text: string,
@@ -824,9 +963,19 @@ export default function DreamSpace() {
         const resp = await fetch("/api/ai/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: text.slice(0, 500), character: charKey }),
+          body: JSON.stringify({
+            text: text.slice(0, 500),
+            character: charKey,
+            dialect: charKey === "daoshen" ? daoshenDialect : "standard",
+          }),
         });
-        console.log("[TTS] response status:", resp.status, resp.headers.get("content-type"));
+        console.log(
+          "[TTS] response status:",
+          resp.status,
+          resp.headers.get("content-type"),
+          "provider:",
+          resp.headers.get("x-tts-provider"),
+        );
         if (!resp.ok) {
           const errText = await resp.text().catch(() => "");
           console.error("[TTS] fetch failed:", resp.status, errText);
@@ -858,6 +1007,7 @@ export default function DreamSpace() {
 
     const originalBgVol = bgAudioRef.current?.volume ?? bgMusicVolume;
     const audio = new Audio(audioUrl);
+    applyTtsPlaybackProfile(audio, charKey);
     audio.volume = ttsVolumeRef.current;
     ttsAudioRef.current = audio;
 
@@ -1021,6 +1171,7 @@ export default function DreamSpace() {
               userInput: msg || "[图片]",
               imageUrl: imgUrl ?? null,
               musicContext: musicCtx,
+              dialect: activeKey === "daoshen" ? daoshenDialect : "standard",
               songSearch: isSongSearch,
             },
           });
@@ -1092,80 +1243,82 @@ export default function DreamSpace() {
 
     // Stop recording
     if (voiceStatus === "recording") {
-      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
+      } else {
+        try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      }
       setVoiceStatus("processing");
       return;
     }
 
-    // No Speech API → immediate mock fallback
-    if (!recognitionRef.current) {
-      toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
-      setVoiceStatus("recording");
-      setTimeout(() => {
-        setVoiceStatus("processing");
-        setTimeout(() => {
-          setVoiceStatus("idle");
-          handleSend(FALLBACK_TRANSCRIPT);
-        }, 500);
-      }, 1800);
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      toast({ title: "当前浏览器不支持录音，请直接输入梦境。" });
       return;
     }
 
-    // Start real recording
     setVoiceStatus("requesting");
-
-    // Start MediaRecorder alongside SpeechRecognition for audio capture
     audioChunksRef.current = [];
     audioRecordStartRef.current = Date.now();
-    if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-            : MediaRecorder.isTypeSupported("audio/ogg") ? "audio/ogg" : "";
-          const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-          mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-          mr.onstop = () => {
-            stream.getTracks().forEach(t => t.stop());
-            const transcript = pendingTranscriptRef.current ?? "";
-            pendingTranscriptRef.current = null;
-            const duration = Math.max(1, Math.round((Date.now() - audioRecordStartRef.current) / 1000));
-            audioChunksRef.current = [];
-            mediaRecorderRef.current = null;
-            setVoiceStatus("idle");
-            if (transcript) {
-              console.log("[STT] real transcript (MediaRecorder path) =", transcript);
-            } else {
-              console.log("[STT] using fallback transcription (MediaRecorder path)");
-            }
-            handleSendRef.current(transcript || FALLBACK_TRANSCRIPT, { duration });
-          };
-          mediaRecorderRef.current = mr;
-          mr.start();
-        })
-        .catch(() => { mediaRecorderRef.current = null; });
-    }
 
-    // Safety net: if onstart never fires within 3s, fall back to mock
-    requestingTimeoutRef.current = setTimeout(() => {
-      if (voiceStatusRef.current === "requesting") {
-        toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
-        setVoiceStatus("idle");
-        setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 200);
-      }
-    }, 3000);
-    try {
-      recognitionRef.current.start();
-      // onstart will transition to "recording"
-    } catch {
-      // Already running or other error — reset and try fallback
-      if (requestingTimeoutRef.current) {
-        clearTimeout(requestingTimeoutRef.current);
-        requestingTimeoutRef.current = null;
-      }
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus") ? "audio/ogg;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/ogg") ? "audio/ogg"
+          : "";
+        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+        mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+        mr.onerror = () => {
+          stream.getTracks().forEach(t => t.stop());
+          mediaRecorderRef.current = null;
+          setVoiceStatus("idle");
+          toast({ title: "录音出现问题，请重试。" });
+        };
+        mr.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          const duration = Math.max(1, Math.round((Date.now() - audioRecordStartRef.current) / 1000));
+          const audioBlob = new Blob(audioChunksRef.current, { type: mr.mimeType || mimeType || "audio/webm" });
+          audioChunksRef.current = [];
+          mediaRecorderRef.current = null;
+          setVoiceStatus("processing");
+
+          try {
+            const audioBase64 = await blobToBase64(audioBlob);
+            const resp = await fetch("/api/ai/transcribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ audioBase64, mimeType: audioBlob.type || "audio/webm" }),
+            });
+            if (!resp.ok) throw new Error(await resp.text());
+            const data = await resp.json() as { text?: string };
+            const transcript = data.text?.trim();
+            setVoiceStatus("idle");
+            if (!transcript) {
+              toast({ title: "没有识别到语音，可以再说一次。" });
+              return;
+            }
+            console.log("[STT] OpenAI transcript =", transcript);
+            handleSendRef.current(transcript, { duration });
+          } catch (err) {
+            console.error("[STT] transcription failed:", err);
+            setVoiceStatus("idle");
+            toast({ title: "语音识别失败，请再试一次或直接输入。" });
+          }
+        };
+
+        mediaRecorderRef.current = mr;
+        mr.start();
+        setVoiceStatus("recording");
+      })
+      .catch(err => {
+        console.error("[Mic] getUserMedia failed:", err);
+        mediaRecorderRef.current = null;
       setVoiceStatus("idle");
-      toast({ title: "当前浏览器暂不支持语音识别，已为你生成一段示例梦境。" });
-      setTimeout(() => handleSendRef.current(FALLBACK_TRANSCRIPT), 300);
-    }
+        toast({ title: "没有获得麦克风权限，请在系统设置或浏览器权限中允许麦克风。" });
+      });
   };
 
   // ── Image ──────────────────────────────────────────────────────────────────
@@ -1192,6 +1345,7 @@ export default function DreamSpace() {
     if (bgMusicUrl) URL.revokeObjectURL(bgMusicUrl);
     const url = URL.createObjectURL(file);
     setBgMusicUrl(url);
+    setBgMusicCover(null);
     const name = file.name.replace(/\.[^.]+$/, "");
     setBgMusicName(name);
     const ext = file.name.split('.').pop()?.toLowerCase() ?? "";
@@ -1231,6 +1385,67 @@ export default function DreamSpace() {
         });
     }
     e.target.value = "";
+  };
+
+  const searchNeteaseMusic = async () => {
+    const q = neteaseQuery.trim();
+    if (!q) return;
+    setNeteaseLoading(true);
+    try {
+      const resp = await fetch(`/api/music/netease/search?keywords=${encodeURIComponent(q)}&limit=5`);
+      const data = await resp.json() as { songs?: NeteaseSong[]; error?: string };
+      if (!resp.ok) throw new Error(data.error || "搜索失败");
+      setNeteaseSongs(data.songs ?? []);
+      if (!data.songs?.length) toast({ title: "没有搜到合适的网易云结果。" });
+    } catch (err) {
+      console.error("[netease] search failed:", err);
+      toast({ title: "网易云搜索暂时失败，请稍后再试。" });
+    } finally {
+      setNeteaseLoading(false);
+    }
+  };
+
+  const playNeteaseSong = async (song: NeteaseSong) => {
+    try {
+      const resp = await fetch(`/api/music/netease/song-url?id=${encodeURIComponent(song.id)}`);
+      const data = await resp.json() as { proxiedUrl?: string; message?: string; error?: string };
+      if (!resp.ok || !data.proxiedUrl) {
+        toast({ title: data.message || "这首歌暂时无法播放，可能受版权或会员限制。" });
+        return;
+      }
+
+      if (bgMusicUrl?.startsWith("blob:")) URL.revokeObjectURL(bgMusicUrl);
+      const title = song.name;
+      const artist = song.artists.join(" / ");
+      setBgMusicUrl(data.proxiedUrl);
+      setBgMusicName(artist ? `${title} · ${artist}` : title);
+      setBgMusicCover(song.cover ? `/api/music/netease/cover?url=${encodeURIComponent(song.cover)}` : null);
+
+      const ctx: MusicContext = {
+        source: "local",
+        title,
+        artist,
+        fileName: `netease:${song.id}`,
+        type: "netease",
+        mood: "",
+        isPlaying: false,
+      };
+      setMusicContext(ctx);
+      musicContextRef.current = ctx;
+
+      if (bgAudioRef.current) {
+        bgAudioRef.current.src = data.proxiedUrl;
+        bgAudioRef.current.volume = bgMusicVolume;
+        await bgAudioRef.current.play();
+        setBgMusicPlaying(true);
+        const updated = { ...ctx, isPlaying: true };
+        setMusicContext(updated);
+        musicContextRef.current = updated;
+      }
+    } catch (err) {
+      console.error("[netease] play failed:", err);
+      toast({ title: "这首网易云音乐暂时无法播放。" });
+    }
   };
 
   const toggleBgMusic = () => {
@@ -1434,7 +1649,18 @@ export default function DreamSpace() {
         particleColor={charConfig.particleColor}
         glowColor={charConfig.glowColor}
       />
-      <AmbientBg theme={bgTheme} />
+      <AmbientBg theme={bgTheme} settings={ambientVisualSettings} />
+      <MineradioParticles
+        playing={bgMusicPlaying}
+        cover={bgMusicCover}
+        opacity={hasAtmosphere ? 0.48 : 0.30}
+        colors={{
+          primary: charConfig.particleColor,
+          secondary: charConfig.particleColor,
+          highlight: "#fff0b8",
+          glow: charConfig.particleColor,
+        }}
+      />
 
       {/* Character colour bloom */}
       <motion.div
@@ -1466,7 +1692,7 @@ export default function DreamSpace() {
 
         {/* Character tabs */}
         <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
-          style={{ background: "rgba(255,255,255,0.03)" }}>
+          style={{ background: "rgba(255,255,255,0.03)", position: "relative", left: -28 }}>
           {DREAM_CHARS.map(cfg => {
             const active = activeKey === cfg.key;
             return (
@@ -1535,8 +1761,44 @@ export default function DreamSpace() {
         </div>
       </header>
 
+      {activeKey === "daoshen" && (
+        <motion.div
+          className="relative flex items-center gap-1 rounded-full px-1 py-1 mb-1"
+          style={{
+            zIndex: 20,
+            background: "rgba(255,255,255,0.035)",
+            border: "1px solid rgba(255,255,255,0.055)",
+            backdropFilter: "blur(14px)",
+            left: -28,
+          }}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22 }}
+        >
+          {DAOSHEN_DIALECTS.map(dialect => {
+            const active = daoshenDialect === dialect.key;
+            return (
+              <button
+                key={dialect.key}
+                onClick={() => setDaoshenDialect(dialect.key)}
+                title={dialect.hint}
+                className="rounded-full px-2.5 py-1 text-[10px] tracking-wide transition-all"
+                style={{
+                  color: active ? "rgba(255,255,255,0.86)" : "rgba(255,255,255,0.28)",
+                  background: active ? `hsl(${hsl} / 0.16)` : "transparent",
+                  border: `1px solid ${active ? `hsl(${hsl} / 0.28)` : "transparent"}`,
+                  boxShadow: active ? `0 0 16px hsl(${hsl} / 0.08)` : "none",
+                }}
+              >
+                {dialect.label}
+              </button>
+            );
+          })}
+        </motion.div>
+      )}
+
       {/* ── CENTER SOUL AREA ── */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-5"
+      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-3"
         style={{ zIndex: 10, position: "relative" }}>
 
         {/* CompanionOrb — clickable wake interaction for all characters */}
@@ -1547,7 +1809,13 @@ export default function DreamSpace() {
           transition={{ duration: 0.5, ease: "easeOut" }}
           onClick={handleOrbClick}
         >
-          <CompanionOrb size="lg" color={charConfig.companionColor} isSpeaking={isSpeaking} isThinking={isThinking} isListening={isListening} />
+          <CompanionOrb
+            size="lg"
+            color={charConfig.companionColor}
+            isSpeaking={orbIsSpeaking}
+            isThinking={false}
+            isListening={false}
+          />
           <AnimatePresence>
             {wakeClicked && (
               <motion.div
@@ -1590,8 +1858,6 @@ export default function DreamSpace() {
             </p>
           </motion.div>
         </AnimatePresence>
-
-        <AudioWaveform isActive={isSpeaking} isListening={isListening} isThinking={isThinking} color={charConfig.companionColor} />
 
         {/* ── WAKE SUBTITLE — works for all characters ── */}
         <AnimatePresence>
@@ -1897,7 +2163,7 @@ export default function DreamSpace() {
                   {/* Toggle row */}
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[11px] tracking-wide" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      阿暖语音
+                      {charConfig.name}语音
                     </span>
                     <button
                       onClick={() => setTtsEnabled(!ttsEnabled)}
@@ -1935,7 +2201,7 @@ export default function DreamSpace() {
                   {/* Status hint */}
                   <p className="text-[10px] px-1 leading-relaxed" style={{ color: "rgba(255,255,255,0.18)" }}>
                     {ttsEnabled
-                      ? "阿暖回复时会用语音朗读"
+                      ? TTS_PLAYBACK_PROFILE[activeKey]?.hint ?? "回复时会用语音朗读"
                       : "已关闭，只显示文字"}
                   </p>
                 </motion.div>
@@ -1991,6 +2257,74 @@ export default function DreamSpace() {
                   exit={{ opacity: 0, y: 5, scale: 0.97 }}
                   transition={{ duration: 0.18 }}
                 >
+                  {/* Netease Cloud Music */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={neteaseQuery}
+                        onChange={e => setNeteaseQuery(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") void searchNeteaseMusic();
+                        }}
+                        placeholder="搜网易云音乐"
+                        className="min-w-0 flex-1 rounded-xl px-2.5 py-2 text-[11px] outline-none"
+                        style={{
+                          background: "rgba(255,255,255,0.045)",
+                          color: "rgba(255,255,255,0.68)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      />
+                      <button
+                        onClick={() => void searchNeteaseMusic()}
+                        disabled={neteaseLoading}
+                        className="w-9 rounded-xl py-2 text-[11px] transition-all disabled:opacity-50"
+                        style={{
+                          background: `hsl(${hsl} / 0.16)`,
+                          color: `hsl(${hsl} / 0.76)`,
+                          border: `1px solid hsl(${hsl} / 0.16)`,
+                        }}
+                      >
+                        {neteaseLoading ? "…" : "搜"}
+                      </button>
+                    </div>
+
+                    {neteaseSongs.length > 0 && (
+                      <div className="max-h-36 overflow-y-auto pr-1 flex flex-col gap-1">
+                        {neteaseSongs.map(song => (
+                          <button
+                            key={song.id}
+                            onClick={() => void playNeteaseSong(song)}
+                            className="flex items-center gap-2 rounded-xl p-1.5 text-left transition-all"
+                            style={{ background: "rgba(255,255,255,0.035)" }}
+                            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.035)")}
+                          >
+                            {song.cover ? (
+                              <img
+                                src={`/api/music/netease/cover?url=${encodeURIComponent(song.cover)}`}
+                                alt=""
+                                className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div
+                                className="w-7 h-7 rounded-lg flex-shrink-0"
+                                style={{ background: `hsl(${hsl} / 0.14)` }}
+                              />
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[11px] truncate" style={{ color: "rgba(255,255,255,0.68)" }}>
+                                {song.name}
+                              </span>
+                              <span className="block text-[9px] truncate" style={{ color: "rgba(255,255,255,0.28)" }}>
+                                {song.artists.join(" / ") || song.album}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Import button */}
                   <button
                     onClick={() => bgMusicInputRef.current?.click()}
@@ -2122,9 +2456,12 @@ export default function DreamSpace() {
         theme={bgTheme}
         sound={ambientSound}
         music={music}
+        visualSettings={ambientVisualSettings}
         onTheme={handleSceneSelect}
         onSound={handleSoundChange}
         onMusic={handleMusicChange}
+        onVisualSettingsChange={setAmbientVisualSettings}
+        onVisualSettingsReset={handleAmbientVisualReset}
         onClose={() => setAtmosphereOpen(false)}
       />
 

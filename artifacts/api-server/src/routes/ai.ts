@@ -76,8 +76,8 @@ function rnd<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)
 const CHARACTER_VOICE_SETTINGS: Record<string, {
   stability: number; similarityBoost: number; style: number; useSpeakerBoost: boolean; languageCode: string;
 }> = {
-  // anuan: English-speaking persona — James voice, grounded and calm
-  anuan:   { stability: 0.70, similarityBoost: 0.80, style: 0.15, useSpeakerBoost: true, languageCode: "en" },
+  // anuan: English-speaking companion — gently low, clean, intimate; calm conversation, not gravelly
+  anuan:   { stability: 0.78, similarityBoost: 0.84, style: 0.12, useSpeakerBoost: true, languageCode: "en" },
   // muge: English-speaking female — sharp, observant, natural
   muge:    { stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true, languageCode: "en" },
   // daoshen: Chinese-speaking male — grounded, direct, seasoned
@@ -90,14 +90,12 @@ const resolvedVoiceIds: Record<string, string> = {};
 // ─── Per-character voice lists ─────────────────────────────────────────────────
 
 const PREMADE_VOICES_FOR_ANUAN = [
-  { id: "ZQe5CZNOzWyzPSCn5a3c", name: "James"   }, // mature, weighty, experienced — user selected
-  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill"    }, // very deep, gravelly
-  { id: "GBv7mTt0atIp3Br8iCZE", name: "Thomas"  }, // deep narrative
-  { id: "D38z5RcWu1voky8WS1ja", name: "Fin"     }, // textured, slightly rough
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm, deep male
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // deep, restrained
-  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady male
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // restrained, smoother, gently low
+  { id: "ZQe5CZNOzWyzPSCn5a3c", name: "James"   }, // mature, warm, conversational
+  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady, softer fallback
+  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm but rougher, fallback only
+  { id: "GBv7mTt0atIp3Br8iCZE", name: "Thomas"  }, // deeper narrative fallback
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male fallback
   { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // fallback female
   { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // last resort
 ];
@@ -198,6 +196,66 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
   } catch (err1) {
     log("TTS primary model failed, trying flash fallback", { err: String(err1) });
     return Buffer.from(await tryModel("eleven_flash_v2_5"));
+  }
+}
+
+// ─── Local VoxCPM2 TTS for Chinese dialects ───────────────────────────────────
+
+const VOXCPM_TTS_URL = process.env.VOXCPM_TTS_URL || "http://localhost:8808/v1/tts";
+const VOXCPM_TIMEOUT_MS = Number(process.env.VOXCPM_TIMEOUT_MS || 12 * 60_000);
+
+const VOXCPM_DIALECT_VOICE: Record<string, string> = {
+  sichuan: "(四川方言，中年男性，低沉、温柔、像陪伴聊天一样自然)",
+  shaanxi: "(陕西话，中年男性，低沉、冷静、像关中朋友认真聊天)",
+  cantonese: "(粤语，中年男性，低沉、温柔、自然陪伴感)",
+};
+
+function shouldUseVoxCpm(character: unknown, dialect: unknown): dialect is keyof typeof VOXCPM_DIALECT_VOICE {
+  return character === "daoshen"
+    && typeof dialect === "string"
+    && Object.prototype.hasOwnProperty.call(VOXCPM_DIALECT_VOICE, dialect);
+}
+
+async function voxCpmTts(
+  text: string,
+  dialect: keyof typeof VOXCPM_DIALECT_VOICE,
+  log: (msg: string, data?: object) => void,
+): Promise<Buffer> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VOXCPM_TIMEOUT_MS);
+
+  try {
+    log("VoxCPM TTS request start", { dialect, url: VOXCPM_TTS_URL });
+    const r = await fetch(VOXCPM_TTS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "audio/wav" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        text: text.slice(0, 500),
+        voice_description: VOXCPM_DIALECT_VOICE[dialect],
+        cfg_value: 2.0,
+        inference_timesteps: 10,
+        seed: 42,
+      }),
+    });
+
+    if (!r.ok) {
+      const detail = await r.text().catch(() => "(no body)");
+      throw new Error(`VoxCPM TTS ${r.status}: ${detail}`);
+    }
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length) throw new Error("VoxCPM returned empty audio");
+    log("VoxCPM TTS success", {
+      dialect,
+      bytes: buf.length,
+      duration: r.headers.get("x-audio-duration"),
+      generationTime: r.headers.get("x-generation-time"),
+      rtf: r.headers.get("x-rtf"),
+    });
+    return buf;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -567,24 +625,117 @@ const DREAM_CHAT_MOCK: Record<string, string[]> = {
   ],
 };
 
+const DAOSHEN_DIALECT_PROMPTS: Record<string, string> = {
+  standard: "",
+  sichuan: `
+
+本轮岛深方言模式：四川话。
+- 回复仍然以清晰中文为主，但加入自然的四川口吻和少量四川话词尾，例如："莫慌"、"要得"、"晓得"、"你这个梦有点凶哦"、"慢慢说嘛"。
+- 不要整段硬写方言，不要堆砌"噻/撒/咯"。
+- 保持岛深原本的冷静、直接、有烟火气；像一个成都/川渝朋友在夜里认真给你看梦。`,
+  shaanxi: `
+
+本轮岛深方言模式：陕西话。
+- 回复仍然以清晰中文为主，但加入自然的关中/陕西口吻和少量表达，例如："甭急"、"咱慢慢看"、"你这梦有点瓷实"、"这事儿不简单咧"。
+- 不要整段硬写方言，不要故意写得难懂。
+- 保持岛深原本的冷静、直接、有烟火气；像一个西安/关中朋友在认真拆梦。`,
+  cantonese: `
+
+本轮岛深方言模式：粤语。
+- 回复使用易懂的粤语口吻，允许普通话夹粤语；可以自然使用："唔使急"、"慢慢讲"、"呢个梦有啲意思"、"你讲嗰个位先係重点"。
+- 如果用户不是粤语输入，不要写成太难懂的纯粤语；保持能读懂。
+- 保持岛深原本的冷静、直接、有烟火气；像一个粤语朋友在低声但犀利地陪你看梦。`,
+};
+
 router.post("/ai/tts", async (req, res): Promise<void> => {
-  const { text, character } = req.body as { text?: unknown; character?: unknown };
+  const { text, character, dialect } = req.body as { text?: unknown; character?: unknown; dialect?: unknown };
   if (typeof text !== "string" || !text.trim()) {
     res.status(400).json({ error: "text required" }); return;
   }
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    res.status(503).json({ error: "TTS not configured" }); return;
-  }
+  const normalizedCharacter = typeof character === "string" ? character : "anuan";
   try {
     const log = (msg: string, data?: object) => req.log.info(data ?? {}, msg);
-    const buf = await elevenLabsTts(text.trim(), typeof character === "string" ? character : "anuan", apiKey, log);
+
+    if (shouldUseVoxCpm(normalizedCharacter, dialect)) {
+      try {
+        const buf = await voxCpmTts(text.trim(), dialect, log);
+        res.setHeader("Content-Type", "audio/wav");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-TTS-Provider", "voxcpm");
+        res.send(buf);
+        return;
+      } catch (err) {
+        req.log.error({ err: String(err), dialect }, "VoxCPM TTS failed");
+        res.status(502).json({ error: "VoxCPM TTS unavailable" });
+        return;
+      }
+    }
+
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      res.status(503).json({ error: "TTS not configured" }); return;
+    }
+
+    const buf = await elevenLabsTts(text.trim(), normalizedCharacter, apiKey, log);
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-TTS-Provider", "elevenlabs");
     res.send(buf);
   } catch (err) {
     req.log.error({ err: String(err) }, "TTS failed — full detail above");
     res.status(502).json({ error: String(err) });
+  }
+});
+
+router.post("/ai/transcribe", async (req, res): Promise<void> => {
+  const { audioBase64, mimeType } = req.body as { audioBase64?: unknown; mimeType?: unknown };
+  if (typeof audioBase64 !== "string" || !audioBase64.trim()) {
+    res.status(400).json({ error: "audioBase64 required" }); return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "OpenAI not configured" }); return;
+  }
+
+  const audioMime = typeof mimeType === "string" && mimeType ? mimeType : "audio/webm";
+  const extension = audioMime.includes("ogg") ? "ogg" : audioMime.includes("mp4") ? "mp4" : "webm";
+  const audioBuffer = Buffer.from(audioBase64, "base64");
+
+  const transcribeWithModel = async (model: string): Promise<string> => {
+    const form = new FormData();
+    form.append("model", model);
+    form.append("language", "zh");
+    form.append("file", new Blob([audioBuffer], { type: audioMime }), `dream-voice.${extension}`);
+
+    const resp = await withTimeout(
+      fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      }),
+      OPENAI_TIMEOUT_MS,
+    );
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => "");
+      throw new Error(`OpenAI transcription ${resp.status} [${model}]: ${detail}`);
+    }
+    const json = await resp.json() as { text?: string };
+    return json.text?.trim() ?? "";
+  };
+
+  try {
+    let text = "";
+    try {
+      text = await transcribeWithModel("gpt-4o-mini-transcribe");
+    } catch (err) {
+      req.log.warn({ err: String(err) }, "Primary transcription model failed, trying whisper fallback");
+      text = await transcribeWithModel("whisper-1");
+    }
+    res.json({ text });
+  } catch (err) {
+    req.log.error({ err: String(err) }, "AI transcription failed");
+    res.status(502).json({ error: "Transcription failed" });
   }
 });
 
@@ -612,9 +763,12 @@ router.post(
 
     const apiKey = process.env.OPENAI_API_KEY;
     const model  = process.env.AI_MODEL_NAME ?? "gpt-4o-mini";
-    const { activeCharacter, history, userInput, imageUrl, musicContext, songSearch } = parsed.data;
+    const { activeCharacter, history, userInput, imageUrl, musicContext, songSearch, dialect } = parsed.data;
 
-    const sysPrompt = DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan;
+    const dialectPrompt = activeCharacter === "daoshen" && dialect
+      ? (DAOSHEN_DIALECT_PROMPTS[dialect] ?? "")
+      : "";
+    const sysPrompt = (DREAM_CHAR_PROMPTS[activeCharacter] ?? DREAM_CHAR_PROMPTS.anuan) + dialectPrompt;
     const mockPool  = DREAM_CHAT_MOCK[activeCharacter]    ?? DREAM_CHAT_MOCK.anuan;
 
     if (!apiKey) {

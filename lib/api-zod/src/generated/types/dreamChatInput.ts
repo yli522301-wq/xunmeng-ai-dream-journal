@@ -17,6 +17,8 @@ export interface DreamChatInput {
   imageUrl?: string | null;
   /** @nullable */
   musicContext?: MusicContext | null;
+  /** 岛深专属方言模式：普通话、四川话、陕西话、粤语 */
+  dialect?: 'standard' | 'sichuan' | 'shaanxi' | 'cantonese';
   /** 当为 true 时，表示这次请求涉及联网查询歌曲资料（创作背景、发行信息等），需检查每日歌曲搜索限制 */
   songSearch?: boolean;
 }

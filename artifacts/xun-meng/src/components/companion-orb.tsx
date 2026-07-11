@@ -1,8 +1,8 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-export type CompanionColor = 'amber' | 'indigo' | 'teal' | 'purple';
+export type CompanionColor = "amber" | "indigo" | "teal" | "purple";
 
 interface CompanionOrbProps {
   size?: "lg" | "sm" | "xs";
@@ -14,44 +14,68 @@ interface CompanionOrbProps {
   onTap?: () => void;
 }
 
-const COLOR_MAP: Record<CompanionColor, { h: string; glow: string; particle: string }> = {
-  amber:  { h: "38 90% 60%",   glow: "rgba(245,166,35,",   particle: "rgba(255,210,80," },
-  indigo: { h: "240 70% 65%",  glow: "rgba(92,107,192,",   particle: "rgba(140,160,255," },
-  teal:   { h: "185 70% 55%",  glow: "rgba(77,208,225,",   particle: "rgba(100,230,220," },
-  purple: { h: "255 90% 70%",  glow: "rgba(140,82,255,",   particle: "rgba(180,130,255," },
+const COLOR_MAP: Record<CompanionColor, {
+  h: string;
+  glow: string;
+  rgb: [number, number, number];
+  tint: [number, number, number];
+}> = {
+  amber:  { h: "38 90% 60%",  glow: "rgba(245,166,35,",  rgb: [218, 196, 156], tint: [238, 177, 88] },
+  indigo: { h: "232 72% 67%", glow: "rgba(92,107,192,",  rgb: [190, 194, 218], tint: [126, 146, 255] },
+  teal:   { h: "185 70% 55%", glow: "rgba(77,208,225,",  rgb: [185, 212, 216], tint: [94, 222, 214] },
+  purple: { h: "258 84% 70%", glow: "rgba(140,82,255,",  rgb: [202, 194, 220], tint: [165, 126, 255] },
 };
 
-// Stable pre-generated particles (deterministic, no Math.random at render time)
-const PARTICLES = [
-  { id:0,  ax:  0.82, ay: -0.57, r: 1.00, dur: 5.2, del: 0.0,  op: 0.55 },
-  { id:1,  ax: -0.34, ay:  0.94, r: 0.88, dur: 6.8, del: 0.5,  op: 0.40 },
-  { id:2,  ax:  0.60, ay:  0.80, r: 1.10, dur: 4.5, del: 1.0,  op: 0.65 },
-  { id:3,  ax: -0.95, ay: -0.31, r: 0.75, dur: 7.2, del: 1.4,  op: 0.35 },
-  { id:4,  ax:  0.18, ay: -0.98, r: 1.20, dur: 5.8, del: 0.3,  op: 0.50 },
-  { id:5,  ax: -0.71, ay:  0.71, r: 0.92, dur: 6.1, del: 2.0,  op: 0.45 },
-  { id:6,  ax:  0.98, ay:  0.20, r: 0.80, dur: 8.0, del: 0.8,  op: 0.30 },
-  { id:7,  ax: -0.45, ay: -0.89, r: 1.05, dur: 4.9, del: 1.7,  op: 0.60 },
-  { id:8,  ax:  0.30, ay:  0.95, r: 0.70, dur: 6.5, del: 2.5,  op: 0.38 },
-  { id:9,  ax: -0.87, ay:  0.49, r: 1.15, dur: 5.4, del: 0.6,  op: 0.52 },
-  { id:10, ax:  0.54, ay: -0.84, r: 0.85, dur: 7.5, del: 1.2,  op: 0.42 },
-  { id:11, ax: -0.14, ay:  0.99, r: 1.00, dur: 6.0, del: 2.2,  op: 0.48 },
-];
+type SpherePoint = {
+  seed: number;
+  theta: number;
+  phi: number;
+  band: number;
+  meridian: number;
+  baseAlpha: number;
+};
+
+function makeSpherePoints(latCount: number, lonCount: number): SpherePoint[] {
+  const points: SpherePoint[] = [];
+  let seed = 1;
+  for (let i = 1; i < latCount; i += 1) {
+    const v = i / latCount;
+    const phi = v * Math.PI;
+    const rowScale = Math.sin(phi);
+    const rowLon = Math.max(12, Math.round(lonCount * rowScale));
+    for (let j = 0; j < rowLon; j += 1) {
+      points.push({
+        seed,
+        theta: (j / rowLon) * Math.PI * 2,
+        phi,
+        band: v,
+        meridian: j / rowLon,
+        baseAlpha: 0.40 + rowScale * 0.38,
+      });
+      seed += 1;
+    }
+  }
+  return points;
+}
+
+const LARGE_SPHERE = makeSpherePoints(46, 92);
+const SMALL_SPHERE = makeSpherePoints(14, 28);
 
 export function CompanionOrb({
   size = "lg",
   isSpeaking = false,
   isThinking = false,
   isListening = false,
-  color = 'purple',
+  color = "purple",
   className,
   onTap,
 }: CompanionOrbProps) {
   const [tapped, setTapped] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stateRef = useRef({ isSpeaking, isThinking, isListening, color });
 
   const c = COLOR_MAP[color];
-
-  const orbPx = size === "lg" ? 200 : size === "sm" ? 48 : 20;
-  const halfOrb = orbPx / 2;
+  const orbPx = size === "lg" ? 400 : size === "sm" ? 48 : 20;
 
   const handleTap = () => {
     setTapped(true);
@@ -59,153 +83,181 @@ export function CompanionOrb({
     onTap?.();
   };
 
-  const isActive = isSpeaking || isListening;
+  useEffect(() => {
+    stateRef.current = { isSpeaking, isThinking, isListening, color };
+  }, [isSpeaking, isThinking, isListening, color]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return;
+
+    let raf = 0;
+    const points = size === "lg" ? LARGE_SPHERE : SMALL_SPHERE;
+
+    const resize = () => {
+      const dpr = Math.min(1.75, Math.max(1, window.devicePixelRatio || 1));
+      canvas.width = Math.round(orbPx * dpr);
+      canvas.height = Math.round(orbPx * dpr);
+      canvas.style.width = `${orbPx}px`;
+      canvas.style.height = `${orbPx}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const draw = (nowMs: number) => {
+      const now = nowMs * 0.001;
+      const state = stateRef.current;
+      const palette = COLOR_MAP[state.color];
+      const active = state.isSpeaking;
+      const cx = orbPx / 2;
+      const cy = orbPx / 2;
+      const baseR = orbPx * (size === "lg" ? 0.405 : 0.34);
+      const breath = active ? 1 + Math.sin(now * 6.6) * 0.046 : 1;
+      const rotY = active ? now * 0.42 : now * 0.045;
+      const rotX = active ? -0.18 + Math.sin(now * 0.7) * 0.035 : -0.18;
+      const wavePower = active ? 0.18 : 0;
+
+      ctx.clearRect(0, 0, orbPx, orbPx);
+
+      const bgGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbPx * 0.55);
+      bgGlow.addColorStop(0, `rgba(${palette.tint[0]},${palette.tint[1]},${palette.tint[2]},0.045)`);
+      bgGlow.addColorStop(0.72, `rgba(${palette.tint[0]},${palette.tint[1]},${palette.tint[2]},0.018)`);
+      bgGlow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = bgGlow;
+      ctx.fillRect(0, 0, orbPx, orbPx);
+
+      const rendered = points.map(p => {
+        const speakWave =
+          Math.sin(p.theta * 6.5 + now * 8.6 + p.band * 2.2) * 0.50 +
+          Math.sin(p.phi * 10.5 - now * 6.9 + p.meridian * 5.0) * 0.34 +
+          Math.sin((p.theta - p.phi) * 4.7 + now * 4.1) * 0.26 +
+          Math.sin(p.theta * 13.0 + p.phi * 5.0 - now * 10.8) * 0.18;
+        const rimWeight = Math.pow(Math.sin(p.phi), 1.7);
+        const edgeRipple = speakWave * wavePower * rimWeight;
+        const r = baseR * breath * (1 + edgeRipple);
+
+        let x = Math.sin(p.phi) * Math.cos(p.theta + rotY) * r;
+        let y = Math.cos(p.phi) * r;
+        let z = Math.sin(p.phi) * Math.sin(p.theta + rotY) * r;
+
+        const y2 = y * Math.cos(rotX) - z * Math.sin(rotX);
+        const z2 = y * Math.sin(rotX) + z * Math.cos(rotX);
+        y = y2;
+        z = z2;
+
+        const depth = (z / baseR + 1) / 2;
+        const perspective = 0.82 + depth * 0.24;
+        const rim = Math.min(1, Math.abs(x) / (baseR * 0.94));
+        const topLight = Math.max(0, -y / baseR);
+        const meridianFade = 0.64 + Math.pow(Math.sin(p.meridian * Math.PI * 10 + now * 0.25), 2) * 0.16;
+        const alpha = (0.13 + depth * 0.50 + rim * 0.36 + topLight * 0.12) * p.baseAlpha * meridianFade;
+        const tintMix = active ? 0.42 : 0.25;
+        const rCol = palette.rgb[0] * (1 - tintMix) + palette.tint[0] * tintMix;
+        const gCol = palette.rgb[1] * (1 - tintMix) + palette.tint[1] * tintMix;
+        const bCol = palette.rgb[2] * (1 - tintMix) + palette.tint[2] * tintMix;
+
+        return {
+          x: cx + x * perspective,
+          y: cy + y * perspective,
+          z,
+          alpha,
+          size: (size === "lg" ? 0.76 : 0.46) * (0.55 + depth * 0.80 + rim * 0.34) * (active ? 1.10 : 1),
+          color: [rCol, gCol, bCol] as [number, number, number],
+        };
+      }).sort((a, b) => a.z - b.z);
+
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of rendered) {
+        const [r, g, b] = p.color;
+        ctx.globalAlpha = Math.max(0.034, Math.min(0.72, p.alpha));
+        ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (active && size === "lg") {
+        ctx.globalCompositeOperation = "screen";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i += 1) {
+          const pulse = 1 + Math.sin(now * 4.7 + i * 1.1) * 0.025;
+          ctx.globalAlpha = state.isSpeaking ? 0.12 - i * 0.026 : 0.065 - i * 0.014;
+          ctx.strokeStyle = `rgb(${palette.tint[0]},${palette.tint[1]},${palette.tint[2]})`;
+          ctx.beginPath();
+          for (let a = 0; a <= Math.PI * 2 + 0.05; a += 0.055) {
+            const wave =
+              Math.sin(a * 7.0 + now * 8.4 + i) * 6.2 +
+              Math.sin(a * 13.0 - now * 5.9 + i * 0.7) * 3.2 +
+              Math.sin(a * 4.0 + now * 3.6) * 2.0;
+            const rr = baseR * (0.99 + i * 0.035) * pulse + wave;
+            const x = cx + Math.cos(a) * rr;
+            const y = cy + Math.sin(a) * rr * 0.93;
+            if (a === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      raf = requestAnimationFrame(draw);
+    };
+
+    resize();
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [orbPx, size]);
 
   return (
     <div
       className={cn("relative flex items-center justify-center select-none", className)}
       style={{ width: orbPx, height: orbPx }}
     >
-      {/* Floating particles — only on lg */}
-      {size === "lg" && PARTICLES.map(p => {
-        const baseX = p.ax * halfOrb * p.r;
-        const baseY = p.ay * halfOrb * p.r;
-        const driftX = -p.ay * 8 * (isActive ? 1.8 : 1);
-        const driftY =  p.ax * 8 * (isActive ? 1.8 : 1);
-        const particleSize = p.id % 3 === 0 ? 2.5 : p.id % 3 === 1 ? 2 : 1.5;
-        const activeOp = isSpeaking ? p.op * 1.6 : isListening ? p.op * 1.3 : p.op;
-
-        return (
-          <motion.div
-            key={p.id}
-            className="absolute rounded-full pointer-events-none"
-            style={{
-              width: particleSize,
-              height: particleSize,
-              backgroundColor: `${c.particle}${activeOp})`,
-              left: halfOrb - particleSize / 2,
-              top:  halfOrb - particleSize / 2,
-              filter: "blur(0.4px)",
-            }}
-            animate={{
-              x: [baseX, baseX + driftX, baseX - driftX * 0.5, baseX],
-              y: [baseY, baseY + driftY, baseY - driftY * 0.5, baseY],
-              opacity: [activeOp * 0.4, activeOp, activeOp * 0.6, activeOp * 0.4],
-              scale: isSpeaking ? [1, 1.6, 1] : [0.8, 1.2, 0.8],
-            }}
-            transition={{
-              duration: p.dur * (isSpeaking ? 0.6 : isListening ? 0.8 : 1),
-              repeat: Infinity,
-              ease: "easeInOut",
-              delay: p.del,
-            }}
-          />
-        );
-      })}
-
-      {/* Tap ripple */}
       <AnimatePresence>
         {tapped && (
           <motion.div
             className="absolute inset-0 rounded-full pointer-events-none"
-            style={{ border: `1px solid ${c.glow}0.6)` }}
-            initial={{ scale: 1, opacity: 0.7 }}
-            animate={{ scale: 2.2, opacity: 0 }}
+            style={{ border: `1px solid ${c.glow}0.52)` }}
+            initial={{ scale: 0.92, opacity: 0.5 }}
+            animate={{ scale: 1.42, opacity: 0 }}
             exit={{}}
             transition={{ duration: 0.55, ease: "easeOut" }}
           />
         )}
       </AnimatePresence>
 
-      {/* Outer pulse ring — active states only */}
-      <motion.div
-        className="absolute inset-[-12%] rounded-full pointer-events-none"
-        style={{ border: `1px solid ${c.glow}0.22)` }}
-        animate={{
-          scale:   isSpeaking ? [1.0, 1.25, 1.0] : isListening ? [1.0, 1.15, 1.0] : [1.0, 1.08, 1.0],
-          opacity: isSpeaking ? [0.15, 0.35, 0.15] : isListening ? [0.1, 0.28, 0.1] : [0, 0.12, 0],
-        }}
-        transition={{ duration: isSpeaking ? 1.8 : isListening ? 2.2 : 5, ease: "easeInOut", repeat: Infinity }}
-      />
-
-      {/* Mid glow ring */}
-      <motion.div
-        className="absolute inset-[-4%] rounded-full pointer-events-none"
-        style={{ border: `1px solid ${c.glow}0.3)` }}
-        animate={{
-          scale:   isSpeaking ? [1.0, 1.15, 1.0] : isListening ? [1.0, 1.10, 1.0] : [1.0, 1.04, 1.0],
-          opacity: isSpeaking ? [0.2, 0.5, 0.2] : isListening ? [0.15, 0.35, 0.15] : [0.05, 0.18, 0.05],
-        }}
-        transition={{ duration: isSpeaking ? 1.4 : isListening ? 1.8 : 6, ease: "easeInOut", repeat: Infinity, delay: 0.4 }}
-      />
-
-      {/* Main orb — clickable */}
       <motion.div
         className="absolute inset-0 rounded-full cursor-pointer"
-        style={{
-          background: `radial-gradient(circle at 40% 35%,
-            hsl(${c.h} / 0.92) 0%,
-            hsl(${c.h} / 0.55) 35%,
-            hsl(${c.h} / 0.18) 65%,
-            transparent 85%)`,
-          boxShadow: `0 0 ${isSpeaking ? 60 : isListening ? 45 : 30}px ${c.glow}${isSpeaking ? 0.35 : isListening ? 0.25 : 0.18}),
-                      0 0 ${isSpeaking ? 120 : isListening ? 90 : 60}px ${c.glow}${isSpeaking ? 0.12 : isListening ? 0.09 : 0.06})`,
-        }}
+        style={{ background: "transparent" }}
         animate={{
           scale: tapped
-            ? [1.0, 1.18, 0.96, 1.04, 1.0]
+            ? [1.0, 1.08, 0.985, 1.0]
             : isSpeaking
-            ? [0.93, 1.07, 0.93]
-            : isThinking
-            ? [0.97, 1.03, 0.97]
-            : isListening
-            ? [0.95, 1.05, 0.95]
-            : [0.96, 1.03, 0.96],
-          opacity: isSpeaking ? [0.82, 1.0, 0.82] : [0.88, 1.0, 0.88],
-          rotate: isThinking ? 360 : 0,
+            ? [0.992, 1.022, 0.992]
+            : 1,
         }}
         transition={
           tapped
-            ? { duration: 0.55, ease: "easeOut" }
-            : {
-                scale:   { duration: isSpeaking ? 1.4 : isListening ? 2.0 : 3.8, ease: "easeInOut", repeat: Infinity },
-                opacity: { duration: isSpeaking ? 1.4 : 4, ease: "easeInOut", repeat: Infinity },
-                rotate:  { duration: 12, ease: "linear", repeat: Infinity },
-              }
+            ? { duration: 0.5, ease: "easeOut" }
+            : { duration: isSpeaking ? 1.35 : 0.2, ease: "easeInOut", repeat: isSpeaking ? Infinity : 0 }
         }
         onTap={handleTap}
-        whileHover={size === "lg" ? { scale: 1.06 } : {}}
+        whileHover={size === "lg" ? { scale: 1.018 } : {}}
       />
 
-      {/* Floating highlight */}
-      <motion.div
-        className="absolute rounded-full pointer-events-none"
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        className="absolute inset-0 rounded-full pointer-events-none"
         style={{
-          width: "28%",
-          height: "22%",
-          top: "18%",
-          left: "26%",
-          background: `radial-gradient(ellipse, rgba(255,255,255,0.22) 0%, transparent 80%)`,
-          filter: "blur(2px)",
+          zIndex: 6,
+          mixBlendMode: "screen",
+          filter: "contrast(1.04) saturate(0.92)",
         }}
-        animate={{ opacity: [0.4, 0.75, 0.4], y: [0, -2, 0] }}
-        transition={{ duration: 4, ease: "easeInOut", repeat: Infinity }}
       />
-
-      {/* Center sparkle — lg only */}
-      {size === "lg" && (
-        <motion.span
-          className="relative z-10 text-white/80 pointer-events-none"
-          style={{ fontSize: 22, lineHeight: 1, mixBlendMode: "overlay" }}
-          animate={{
-            scale:   isSpeaking ? [0.85, 1.25, 0.85] : isThinking ? [1, 1.1, 1] : [0.95, 1.05, 0.95],
-            opacity: isSpeaking ? [0.6, 1.0, 0.6] : isThinking ? [0.4, 0.9, 0.4] : [0.5, 0.8, 0.5],
-          }}
-          transition={{ duration: isSpeaking ? 1.2 : isThinking ? 1.8 : 4, ease: "easeInOut", repeat: Infinity }}
-        >
-          ✦
-        </motion.span>
-      )}
     </div>
   );
 }
