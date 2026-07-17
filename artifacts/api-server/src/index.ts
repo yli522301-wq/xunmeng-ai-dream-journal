@@ -2,10 +2,20 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 
-const proxyUrl = process.env["HTTPS_PROXY"] || process.env["HTTP_PROXY"];
+const proxyUrl = process.env["HTTPS_PROXY"] || process.env["HTTP_PROXY"] || process.env["ALL_PROXY"];
 if (proxyUrl) {
-  setGlobalDispatcher(new ProxyAgent(proxyUrl));
-  logger.info({ proxy: new URL(proxyUrl).origin }, "HTTP proxy enabled");
+  try {
+    const agent = new ProxyAgent(proxyUrl);
+    setGlobalDispatcher(agent);
+    logger.info(
+      { proxy: new URL(proxyUrl).origin, proxyUrlScheme: new URL(proxyUrl).protocol },
+      "HTTP proxy enabled — all outbound fetch requests (including OpenAI Realtime) will route through proxy",
+    );
+  } catch (err) {
+    logger.warn({ err, proxyUrl: String(proxyUrl) }, "Failed to configure proxy agent — outbound requests will go direct");
+  }
+} else {
+  logger.info("No HTTP(S)_PROXY / ALL_PROXY set — outbound requests will go direct");
 }
 
 const rawPort = process.env["PORT"];

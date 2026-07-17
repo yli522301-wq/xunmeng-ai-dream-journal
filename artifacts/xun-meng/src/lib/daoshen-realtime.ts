@@ -10,8 +10,16 @@ export interface DaoshenRealtimeCallbacks {
   onAssistantTranscriptDelta?: (text: string) => void;
   onAssistantTranscript?: (text: string) => void;
   onAssistantTranscriptEnd?: () => void;
-  onError?: (error: Error) => void;
+  onError?: (error: RealtimeError) => void;
 }
+
+export interface RealtimeError {
+  message: string;
+  code: "mic_denied" | "ice_timeout" | "handshake_failed" | "proxy_unavailable"
+    | "missing_realtime_access" | "connection_lost" | "channel_error" | "api_error" | "unknown";
+}
+
+const ICE_GATHERING_TIMEOUT_MS = 10_000;
 
 export class DaoshenRealtimeClient {
   private peer: RTCPeerConnection | null = null;
@@ -20,6 +28,7 @@ export class DaoshenRealtimeClient {
   private remoteAudio: HTMLAudioElement | null = null;
   private callbacks: DaoshenRealtimeCallbacks;
   private stopped = false;
+  private starting = false;
   private assistantTranscript = "";
   private assistantResponseActive = false;
 
@@ -30,22 +39,38 @@ export class DaoshenRealtimeClient {
   get audioElement() { return this.remoteAudio; }
 
   async start(): Promise<void> {
+    // Prevent duplicate sessions — if already starting or running, bail out.
+    if (this.starting || (!this.stopped && this.peer)) {
+      throw new Error("Realtime session already in progress");
+    }
+    this.starting = true;
     this.stopped = false;
     this.assistantTranscript = "";
     this.assistantResponseActive = false;
     this.callbacks.onPhase?.("connecting");
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
-      if (this.stopped) return this.stop();
+      // ── Step 1: acquire microphone ──────────────────────────────────────────
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          },
+        });
+      } catch (micError) {
+        this.starting = false;
+        this.callbacks.onError?.({
+          message: "麦克风权限被拒绝",
+          code: "mic_denied",
+        });
+        throw micError;
+      }
+      if (this.stopped) { this.starting = false; return this.stop(); }
 
+      // ── Step 2: create peer connection and data channel ─────────────────────
       const peer = new RTCPeerConnection();
       this.peer = peer;
       this.stream.getTracks().forEach(track => peer.addTrack(track, this.stream!));
@@ -64,31 +89,115 @@ export class DaoshenRealtimeClient {
       this.channel = channel;
       channel.onopen = () => this.callbacks.onPhase?.("listening");
       channel.onmessage = event => this.handleServerEvent(event.data);
-      channel.onerror = () => this.fail(new Error("Realtime data channel error"));
+      channel.onerror = () => this.fail({
+        message: "Realtime 数据通道错误",
+        code: "channel_error",
+      });
 
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
-          this.fail(new Error(`Realtime connection ${peer.connectionState}`));
+          this.fail({
+            message: "Realtime 连接已断开",
+            code: "connection_lost",
+          });
         }
       };
 
+      // ── Step 3: create offer and wait for ICE candidates ────────────────────
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      const response = await fetch(`${API_BASE}/api/ai/realtime/daoshen/call`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: offer.sdp }),
-      });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        throw new Error(`Realtime handshake ${response.status}: ${detail.slice(0, 300)}`);
+
+      // Wait for ICE gathering to complete so the SDP offer is complete before
+      // we send it to the server. Without this the offer may be missing candidates
+      // and OpenAI's WebRTC endpoint will reject or drop the call.
+      await this.waitForIceGathering(peer);
+
+      if (this.stopped) { this.starting = false; return this.stop(); }
+
+      // ── Step 4: handshake with our backend (which forwards to OpenAI) ───────
+      const handshakeUrl = `${API_BASE}/api/ai/realtime/daoshen/call`;
+      let response: Response;
+      try {
+        response = await fetch(handshakeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sdp: peer.localDescription?.sdp ?? offer.sdp }),
+        });
+      } catch (fetchError) {
+        this.starting = false;
+        const msg = String(fetchError);
+        if (msg.includes("NetworkError") || msg.includes("Failed to fetch")) {
+          this.fail({ message: "当前代理不可用", code: "proxy_unavailable" });
+        } else {
+          this.fail({ message: "无法连接 OpenAI", code: "api_error" });
+        }
+        throw fetchError;
       }
+
+      if (!response.ok) {
+        this.starting = false;
+        let detail: any = {};
+        try { detail = await response.json(); } catch { /* use raw status */ }
+
+        const status = detail.status ?? response.status;
+        const type = detail.type as string | undefined;
+        const message = detail.message as string | undefined;
+
+        // Categorise the error for the user.
+        if (status === 401 || type === "invalid_request_error" || String(message ?? "").includes("API key")) {
+          this.fail({ message: "API Key 缺少 Realtime 权限", code: "missing_realtime_access" });
+        } else if (status === 402 || type === "insufficient_quota") {
+          this.fail({ message: "API 额度不足", code: "api_error" });
+        } else if (detail.proxyError) {
+          this.fail({ message: "当前代理不可用", code: "proxy_unavailable" });
+        } else {
+          const short = String(message ?? "").slice(0, 120);
+          this.fail({ message: short ? `Realtime 会话建立失败: ${short}` : "Realtime 会话建立失败", code: "handshake_failed" });
+        }
+        throw new Error(`Realtime handshake ${status}`);
+      }
+
       const answerSdp = await response.text();
       await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      this.starting = false;
     } catch (error) {
-      this.fail(error instanceof Error ? error : new Error(String(error)));
+      this.starting = false;
+      // Only call fail if we haven't already called it in a specific handler above.
+      if (!this.stopped) {
+        const alreadyFailed = this.stopped;
+        if (!alreadyFailed) {
+          this.fail({ message: String(error instanceof Error ? error.message : error), code: "unknown" });
+        }
+      }
       throw error;
     }
+  }
+
+  /** Block until ICE gathering completes or times out. */
+  private waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (peer.iceGatheringState === "complete") return resolve();
+
+      const timeout = setTimeout(() => {
+        peer.removeEventListener("icegatheringstatechange", onStateChange);
+        // If we have at least some candidates, proceed anyway.
+        if (peer.localDescription?.sdp?.includes("a=candidate")) {
+          resolve();
+        } else {
+          this.fail({ message: "Realtime 会话建立失败: ICE 协商超时", code: "ice_timeout" });
+          reject(new Error("ICE gathering timed out with no candidates"));
+        }
+      }, ICE_GATHERING_TIMEOUT_MS);
+
+      const onStateChange = () => {
+        if (peer.iceGatheringState === "complete") {
+          clearTimeout(timeout);
+          peer.removeEventListener("icegatheringstatechange", onStateChange);
+          resolve();
+        }
+      };
+      peer.addEventListener("icegatheringstatechange", onStateChange);
+    });
   }
 
   setVolume(volume: number) {
@@ -98,6 +207,7 @@ export class DaoshenRealtimeClient {
   stop() {
     if (this.stopped && !this.peer && !this.stream) return;
     this.stopped = true;
+    this.starting = false;
     this.channel?.close();
     this.channel = null;
     this.peer?.close();
@@ -179,13 +289,17 @@ export class DaoshenRealtimeClient {
         break;
       }
       case "error":
-        this.fail(new Error(event.error?.message || "OpenAI Realtime error"));
+        this.fail({
+          message: event.error?.message || "OpenAI Realtime error",
+          code: "api_error",
+        });
         break;
     }
   }
 
-  private fail(error: Error) {
+  private fail(error: RealtimeError) {
     if (this.stopped) return;
+    this.stopped = true;
     this.callbacks.onError?.(error);
   }
 }

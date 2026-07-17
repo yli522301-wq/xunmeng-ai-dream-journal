@@ -25,7 +25,7 @@ import {
   type ParticleAudioMetrics,
 } from "@/components/album-particle-stage";
 import { API_BASE } from "@/lib/api";
-import { DaoshenRealtimeClient, type DaoshenRealtimePhase } from "@/lib/daoshen-realtime";
+import { DaoshenRealtimeClient, type DaoshenRealtimePhase, type RealtimeError } from "@/lib/daoshen-realtime";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CharKey = "daoshen" | "muge" | "anuan";
@@ -1305,8 +1305,19 @@ export default function DreamSpace() {
       },
       onAssistantTranscriptEnd: () => setSubtitleText(""),
       onError: error => {
-        console.error("[daoshen-realtime]", error);
-        toast({ title: "岛深的实时语音暂时没有接通，请重试。" });
+        console.error("[daoshen-realtime]", error.code, error.message);
+        // Show a specific Chinese error message mapped from the error code.
+        const messages: Record<string, string> = {
+          mic_denied: "麦克风权限被拒绝，请在浏览器设置中允许麦克风访问。",
+          ice_timeout: "网络连接超时，请检查代理或网络后重试。",
+          handshake_failed: error.message || "Realtime 会话建立失败，请重试。",
+          proxy_unavailable: "当前代理不可用，请检查代理设置后重试。",
+          missing_realtime_access: "API Key 缺少 Realtime 权限，请检查 Key 配置。",
+          connection_lost: "Realtime 连接已断开，请重试。",
+          channel_error: "Realtime 数据通道错误，请重试。",
+          api_error: error.message || "岛深的实时语音暂时没有接通，请重试。",
+        };
+        toast({ title: messages[error.code] ?? error.message });
         stopDaoshenRealtime();
       },
     });

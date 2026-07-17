@@ -663,10 +663,38 @@ const DAOSHEN_DIALECT_PROMPTS: Record<string, string> = {
 - 保持岛深原本的冷静、直接、有烟火气；像一个粤语朋友在低声但犀利地陪你看梦。`,
 };
 
+// ─── OpenAI Realtime error helpers ──────────────────────────────────────────
+
+interface RealtimeOpenAiError {
+  error?: {
+    type?: string;
+    code?: string | number;
+    message?: string;
+    param?: string | null;
+  };
+}
+
+function sanitiseRealtimeLog(bodyText: string, maxLen = 240): string {
+  // Strip long SDP bodies but keep enough context to identify the error.
+  let s = bodyText;
+  // Truncate SDP blocks — they start with "v=" and run for many lines.
+  s = s.replace(/(\r?\nv=0\r?\n[\s\S]*?)(\r?\n\r?\n|$)/g, (_, sdp) => {
+    const head = sdp.slice(0, 280);
+    return head + (sdp.length > 280 ? `…[SDP truncated, total ${sdp.length} chars]` : "");
+  });
+  if (s.length > maxLen) s = s.slice(0, maxLen) + "…";
+  return s;
+}
+
 /**
  * Establish a browser WebRTC call for 岛深 without exposing OPENAI_API_KEY.
  * The browser sends its SDP offer here; this server forwards the offer and
  * the fixed 岛深 session configuration to OpenAI's unified Realtime endpoint.
+ *
+ * Multipart encoding follows the official OpenAI Realtime WebRTC spec:
+ *   - sdp: plain string, appended with formData.append("sdp", sdpString)
+ *   - session: JSON.stringify(sessionConfig), also a plain string
+ *   - No manual boundary or Content-Type — let fetch/FormData auto-generate
  */
 router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
   const { sdp } = req.body as { sdp?: unknown };
@@ -681,7 +709,7 @@ router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
 
   const session = {
     type: "realtime",
-    model: process.env.OPENAI_REALTIME_MODEL || "gpt-realtime",
+    model: process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime-preview",
     instructions: DAOSHEN_REALTIME_INSTRUCTIONS,
     output_modalities: ["audio"],
     max_output_tokens: 900,
@@ -710,28 +738,66 @@ router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
   };
 
   try {
+    // Use FormData.append (not .set) for maximum compatibility.  Both sdp and
+    // session are plain strings — never Blob, File, or Buffer — so fetch/FormData
+    // will emit Content-Disposition without a filename parameter.
     const form = new FormData();
-    form.set("sdp", sdp);
-    form.set("session", JSON.stringify(session));
+    form.append("sdp", sdp);
+    form.append("session", JSON.stringify(session));
 
     const upstream = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
     });
+
+    const requestId = upstream.headers.get("x-request-id") ?? undefined;
     const answer = await upstream.text();
+
     if (!upstream.ok) {
-      req.log.error({ status: upstream.status, detail: answer.slice(0, 800) }, "OpenAI Realtime call failed");
-      res.status(upstream.status).json({ error: "OpenAI Realtime call failed", detail: answer.slice(0, 800) });
+      // Parse structured error so the client can show a specific message.
+      let errorType: string | undefined;
+      let errorCode: string | number | undefined;
+      let errorMessage: string | undefined;
+      try {
+        const parsed = JSON.parse(answer) as RealtimeOpenAiError;
+        errorType = parsed.error?.type ?? undefined;
+        errorCode = parsed.error?.code ?? undefined;
+        errorMessage = parsed.error?.message ?? undefined;
+      } catch { /* response is not JSON — use raw text */ }
+
+      req.log.error({
+        status: upstream.status,
+        requestId,
+        errorType,
+        errorCode,
+        detail: sanitiseRealtimeLog(answer),
+      }, "OpenAI Realtime call failed");
+
+      res.status(upstream.status).json({
+        error: "OpenAI Realtime call failed",
+        status: upstream.status,
+        requestId,
+        type: errorType,
+        code: errorCode,
+        message: errorMessage,
+      });
       return;
     }
 
+    req.log.info({ requestId, answerLen: answer.length }, "OpenAI Realtime call succeeded");
     res.setHeader("Content-Type", "application/sdp");
     res.setHeader("Cache-Control", "no-store");
     res.status(201).send(answer);
   } catch (err) {
-    req.log.error({ err: String(err) }, "OpenAI Realtime call proxy failed");
-    res.status(502).json({ error: "OpenAI Realtime unavailable" });
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err: message }, "OpenAI Realtime call proxy failed");
+    // Distinguish proxy / connectivity errors from upstream errors.
+    const isProxyError = message.includes("ProxyAgent") || message.includes("ECONNREFUSED") || message.includes("ENOTFOUND");
+    res.status(502).json({
+      error: isProxyError ? "代理不可用" : "OpenAI Realtime unavailable",
+      proxyError: isProxyError,
+    });
   }
 });
 
