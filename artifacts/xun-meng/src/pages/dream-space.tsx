@@ -1344,13 +1344,21 @@ export default function DreamSpace() {
     window.speechSynthesis.speak(u);
   };
 
-  // ── TTS playback (VoxCPM dialects for 岛深, ElevenLabs fallback) ─────
+  // ── TTS playback (VoxCPM dialects for 岛深, ElevenLabs for 暮歌/阿暖) ─────
   const playTtsSafe = async (
     msgId: string,
     text: string,
     charKey: CharKey,
     onPlayStart?: (audioDuration: number) => void,
   ) => {
+    // Daoshen uses OpenAI Realtime — never call the TTS endpoint.
+    // (VoxCPM dialect is handled through the same endpoint but with a dialect
+    // param; standard Daoshen without dialect must not hit ElevenLabs.)
+    if (charKey === "daoshen" && daoshenDialect === "standard") {
+      onPlayStart?.(5);
+      return;
+    }
+
     if (!ttsEnabledRef.current) {
       onPlayStart?.(5);
       return;
@@ -1386,9 +1394,23 @@ export default function DreamSpace() {
           resp.headers.get("x-tts-provider"),
         );
         if (!resp.ok) {
-          const errText = await resp.text().catch(() => "");
-          console.error("[TTS] fetch failed:", resp.status, errText);
-          toast({ title: "语音暂时没有接通，已先显示文字。" });
+          const errBody = await resp.json().catch(() => ({})) as { code?: string; error?: string };
+          const code = errBody.code ?? "unknown";
+          console.error("[TTS] fetch failed:", resp.status, code, errBody.error);
+
+          // Map structured error codes to Chinese user-facing messages.
+          const errorMessages: Record<string, string> = {
+            missing_api_key: "语音服务未配置，请检查 ElevenLabs Key。",
+            invalid_api_key: "语音服务 Key 无效或已过期，请更新 Key。",
+            voice_not_found: "未找到可用语音，请检查 ElevenLabs 账户。",
+            quota_exceeded: "语音服务额度已用完，请稍后再试。",
+            permission_denied: "语音服务权限不足，请检查 Key 权限。",
+            elevenlabs_timeout: "语音生成超时，请重试。",
+            elevenlabs_unavailable: "语音服务暂时不可用，已先显示文字。",
+            daoshen_uses_realtime: "岛深使用实时语音，无需调用 TTS。",
+            unsupported_character: "当前人格不支持 TTS 语音。",
+          };
+          toast({ title: errorMessages[code] ?? "语音暂时没有接通，已先显示文字。" });
           setTtsStatus("idle");
           onPlayStart?.(5);
           return;
@@ -1397,7 +1419,7 @@ export default function DreamSpace() {
         console.log("[TTS] blob size:", blob.size);
         if (blob.size === 0) {
           console.error("[TTS] blob is empty");
-          toast({ title: "语音暂时没有接通，已先显示文字。" });
+          toast({ title: "语音生成失败，请重试。" });
           setTtsStatus("idle");
           onPlayStart?.(5);
           return;
@@ -1407,7 +1429,7 @@ export default function DreamSpace() {
         ttsCacheRef.current.set(msgId, audioUrl);
       } catch (err) {
         console.error("[TTS] fetch error:", err);
-        toast({ title: "语音暂时没有接通，已先显示文字。" });
+        toast({ title: "语音服务暂时不可用，已先显示文字。" });
         setTtsStatus("idle");
         onPlayStart?.(5);
         return;
@@ -1445,9 +1467,13 @@ export default function DreamSpace() {
       }
     };
     audio.onerror = () => {
-      onPlayStart?.(5); // start typewriter if not started yet
+      // Clean up blob URL on error too — avoid memory leak.
+      ttsCacheRef.current.delete(msgId);
+      URL.revokeObjectURL(audioUrl!);
+      onPlayStart?.(5);
       stopSubtitleSync();
       restoreBg();
+      toast({ title: "音频播放失败，请重试。" });
     };
     audio.onpause = () => {
       stopSubtitleSync();

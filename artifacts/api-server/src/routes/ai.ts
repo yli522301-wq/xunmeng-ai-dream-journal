@@ -91,6 +91,26 @@ const MOCK_IMAGE = {
 
 function rnd<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
+// ─── ElevenLabs TTS error types ──────────────────────────────────────────────
+
+interface ElevenLabsTtsError {
+  code: string;
+  message: string;
+  status?: number;
+  requestId?: string;
+}
+
+function elevenLabsError(
+  code: string,
+  message: string,
+  status?: number,
+  requestId?: string,
+): ElevenLabsTtsError {
+  return { code, message, status, requestId };
+}
+
+const ELEVENLABS_TTS_TIMEOUT_MS = 25_000;
+
 // ─── ElevenLabs TTS config ────────────────────────────────────────────────────
 
 const CHARACTER_VOICE_SETTINGS: Record<string, {
@@ -100,47 +120,41 @@ const CHARACTER_VOICE_SETTINGS: Record<string, {
   anuan:   { stability: 0.78, similarityBoost: 0.84, style: 0.12, useSpeakerBoost: true, languageCode: "en" },
   // muge: English-speaking female — sharp, observant, natural
   muge:    { stability: 0.50, similarityBoost: 0.72, style: 0.30, useSpeakerBoost: true, languageCode: "en" },
-  // daoshen: Chinese-speaking male — grounded, direct, seasoned
+  // daoshen: NOT used for ElevenLabs — daoshen goes through OpenAI Realtime.
+  // Voice settings kept for reference only; the TTS endpoint rejects daoshen.
   daoshen: { stability: 0.55, similarityBoost: 0.70, style: 0.20, useSpeakerBoost: true, languageCode: "zh" },
 };
 
 // Runtime cache: working voiceId resolved once per server process per character
 const resolvedVoiceIds: Record<string, string> = {};
+// Also cache the voice name for logging.
+const resolvedVoiceNames: Record<string, string> = {};
 
-// ─── Per-character voice lists ─────────────────────────────────────────────────
+const ELEVENLABS_CHARACTERS: ReadonlySet<string> = new Set(["anuan", "muge"]);
 
-const PREMADE_VOICES_FOR_ANUAN = [
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep, resonant, comforting
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm storyteller
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // steady, restrained
-  { id: "iP95p4xoKVk53GoZ742B", name: "Chris"   }, // down-to-earth fallback
+// ─── Per-character voice preference lists ──────────────────────────────────────
+// These are preferred NAMES (not IDs).  resolveVoiceId() matches them against
+// the voices actually available to the API key at runtime.
+
+const PREFERRED_VOICE_NAMES_FOR_ANUAN = [
+  "Brian",   // deep, resonant, comforting
+  "George",  // warm storyteller
+  "Daniel",  // steady, restrained
+  "Chris",   // down-to-earth fallback
 ];
 
-const PREMADE_VOICES_FOR_MUGE = [
-  { id: "FGY2WhTYpPnrIDTdsKH5", name: "Laura"   }, // expressive, quirky edge
-  { id: "cgSgspJ2msm6clMCkdW9", name: "Jessica" }, // playful, bright, warm
-  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily"    }, // velvety fallback
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah"   }, // mature, reassuring fallback
+const PREFERRED_VOICE_NAMES_FOR_MUGE = [
+  "Laura",    // expressive, quirky edge
+  "Jessica",  // playful, bright, warm
+  "Lily",     // velvety fallback
+  "Sarah",    // mature, reassuring fallback
 ];
 
-const PREMADE_VOICES_FOR_DAOSHEN = [
-  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill"    }, // deep, gravelly — grounded
-  { id: "GBv7mTt0atIp3Br8iCZE", name: "Thomas"  }, // deep narrative
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // deep, restrained
-  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady male
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm, deep male
-  { id: "D38z5RcWu1voky8WS1ja", name: "Fin"     }, // textured, slightly rough
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // fallback
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // last resort
-];
-
-function getVoiceListForCharacter(character: string): { id: string; name: string }[] {
+function getPreferredVoiceNames(character: string): string[] {
   switch (character) {
-    case "anuan":   return PREMADE_VOICES_FOR_ANUAN;
-    case "muge":    return PREMADE_VOICES_FOR_MUGE;
-    case "daoshen": return PREMADE_VOICES_FOR_DAOSHEN;
-    default:        return PREMADE_VOICES_FOR_ANUAN;
+    case "anuan": return PREFERRED_VOICE_NAMES_FOR_ANUAN;
+    case "muge":  return PREFERRED_VOICE_NAMES_FOR_MUGE;
+    default:      return [];
   }
 }
 
@@ -148,44 +162,104 @@ async function resolveVoiceId(
   character: string,
   apiKey: string,
   log: (msg: string, data?: object) => void,
-): Promise<string> {
-  if (resolvedVoiceIds[character]) return resolvedVoiceIds[character];
+): Promise<{ voiceId: string; voiceName: string }> {
+  if (resolvedVoiceIds[character]) {
+    return { voiceId: resolvedVoiceIds[character], voiceName: resolvedVoiceNames[character] ?? character };
+  }
 
-  const voiceList = getVoiceListForCharacter(character);
-  // Resolve against the voices actually available to this key. The previous
-  // implementation generated a paid "probe" clip for every candidate and used
-  // several retired voice IDs, which made TTS slow and could leave a persona silent.
+  const preferredNames = getPreferredVoiceNames(character);
+
+  // Resolve against the voices actually available to this key.  This is a
+  // READ-ONLY call — no paid TTS probe clips are generated.
   const response = await fetch("https://api.elevenlabs.io/v1/voices", {
     headers: { "xi-api-key": apiKey, Accept: "application/json" },
   });
+
+  const requestId = response.headers.get("x-request-id") ?? undefined;
+
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`ElevenLabs voices ${response.status}: ${detail}`);
+    const status = response.status;
+    // Categorise the error so the client sees a meaningful message.
+    if (status === 401) throw elevenLabsError("invalid_api_key", "ElevenLabs API key is invalid or expired", status, requestId);
+    if (status === 403) throw elevenLabsError("permission_denied", "ElevenLabs API key lacks permission to list voices", status, requestId);
+    if (status === 429) throw elevenLabsError("quota_exceeded", "ElevenLabs voice list quota exceeded", status, requestId);
+    throw elevenLabsError("elevenlabs_unavailable", `ElevenLabs voices ${status}: ${detail.slice(0, 200)}`, status, requestId);
   }
-  const payload = await response.json() as { voices?: Array<{ voice_id?: string; name?: string }> };
-  const available = new Map(
-    (payload.voices ?? [])
-      .filter(voice => typeof voice.voice_id === "string")
-      .map(voice => [voice.voice_id as string, voice.name ?? "ElevenLabs voice"]),
-  );
-  const preferred = voiceList.find(voice => available.has(voice.id));
-  const fallbackId = available.keys().next().value as string | undefined;
-  const voiceId = preferred?.id ?? fallbackId;
-  if (!voiceId) throw new Error("No usable ElevenLabs voice is available to this API key");
-  resolvedVoiceIds[character] = voiceId;
+
+  const payload = await response.json() as { voices?: Array<{ voice_id?: string; name?: string; category?: string }> };
+  const voices = payload.voices ?? [];
+
+  // ElevenLabs voice names include a descriptive suffix like
+  // "Brian - Deep, Resonant and Comforting".  Extract the base name (first word
+  // before " -") for matching against our preference lists.
+  const extractBaseName = (full: string): string => {
+    const dash = full.indexOf(" -");
+    return dash > 0 ? full.slice(0, dash).trim() : full.trim();
+  };
+
+  // Build a map of lowercase base-name → voice for preference matching.
+  const byBaseName = new Map<string, { id: string; name: string }>();
+  for (const v of voices) {
+    if (typeof v.voice_id !== "string" || !v.voice_id) continue;
+    const name = (v.name ?? "ElevenLabs voice").trim();
+    const base = extractBaseName(name).toLowerCase();
+    if (base) byBaseName.set(base, { id: v.voice_id, name });
+  }
+
+  // Pick the first preferred name that exists in the account.
+  let selected: { id: string; name: string } | null = null;
+  for (const pref of preferredNames) {
+    const match = byBaseName.get(pref.toLowerCase());
+    if (match) { selected = match; break; }
+  }
+
+  // If none of the preferred names exist, pick the first available voice.
+  if (!selected) {
+    const first = byBaseName.values().next().value as { id: string; name: string } | undefined;
+    if (first) {
+      selected = first;
+      log("TTS voice: no preferred name found, using first available", {
+        character,
+        preferredNames,
+        selectedName: first.name,
+        voiceId: maskVoiceId(first.id),
+      });
+    }
+  }
+
+  if (!selected) {
+    throw elevenLabsError("voice_not_found", "No usable ElevenLabs voice is available to this API key");
+  }
+
+  resolvedVoiceIds[character] = selected.id;
+  resolvedVoiceNames[character] = selected.name;
   log("TTS voice selected from available voices", {
     character,
-    voiceId,
-    voiceName: preferred?.name ?? available.get(voiceId),
+    voiceName: selected.name,
+    voiceId: maskVoiceId(selected.id),
+    matchedPreference: preferredNames.includes(selected.name),
+    totalAvailable: voices.length,
   });
-  return voiceId;
+  return { voiceId: selected.id, voiceName: selected.name };
 }
 
-async function elevenLabsTts(text: string, character: string, apiKey: string, log: (msg: string, data?: object) => void): Promise<Buffer> {
-  const settings = CHARACTER_VOICE_SETTINGS[character] ?? CHARACTER_VOICE_SETTINGS.anuan;
-  const voiceId  = await resolveVoiceId(character, apiKey, log);
+/** Log-safe voice id: first 4 chars + … */
+function maskVoiceId(id: string): string {
+  if (id.length <= 6) return id;
+  return id.slice(0, 4) + "…";
+}
 
-  log("TTS voice resolved", { character, voiceId });
+async function elevenLabsTts(
+  text: string,
+  character: string,
+  apiKey: string,
+  log: (msg: string, data?: object) => void,
+): Promise<Buffer> {
+  const settings = CHARACTER_VOICE_SETTINGS[character] ?? CHARACTER_VOICE_SETTINGS.anuan;
+  const { voiceId, voiceName } = await resolveVoiceId(character, apiKey, log);
+
+  log("TTS synthesising", { character, voiceName, voiceId: maskVoiceId(voiceId), textLen: text.length });
 
   const voiceSettings = {
     stability:        settings.stability,
@@ -195,24 +269,48 @@ async function elevenLabsTts(text: string, character: string, apiKey: string, lo
   };
 
   const tryModel = async (modelId: string): Promise<ArrayBuffer> => {
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: "POST",
-      headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text: text.slice(0, 500), model_id: modelId, language_code: settings.languageCode, voice_settings: voiceSettings }),
-    });
-    if (!r.ok) {
-      const detail = await r.text().catch(() => "(no body)");
-      throw new Error(`ElevenLabs TTS ${r.status} [${modelId}]: ${detail}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ELEVENLABS_TTS_TIMEOUT_MS);
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          text: text.slice(0, 500),
+          model_id: modelId,
+          language_code: settings.languageCode,
+          voice_settings: voiceSettings,
+        }),
+      });
+      const requestId = r.headers.get("x-request-id") ?? undefined;
+
+      if (!r.ok) {
+        const detail = await r.text().catch(() => "(no body)");
+        const status = r.status;
+        if (status === 401) throw elevenLabsError("invalid_api_key", "ElevenLabs API key is invalid or expired", status, requestId);
+        if (status === 403) throw elevenLabsError("permission_denied", "ElevenLabs API key lacks TTS permission", status, requestId);
+        if (status === 429 || status === 402) throw elevenLabsError("quota_exceeded", "ElevenLabs TTS quota exceeded", status, requestId);
+        if (controller.signal.aborted) throw elevenLabsError("elevenlabs_timeout", `ElevenLabs TTS timed out after ${ELEVENLABS_TTS_TIMEOUT_MS}ms`, undefined, requestId);
+        throw elevenLabsError("elevenlabs_unavailable", `ElevenLabs TTS ${status} [${modelId}]: ${detail.slice(0, 200)}`, status, requestId);
+      }
+      return r.arrayBuffer();
+    } finally {
+      clearTimeout(timer);
     }
-    return r.arrayBuffer();
   };
 
   try {
     return Buffer.from(await tryModel("eleven_multilingual_v2"));
-  } catch (err1) {
-    log("TTS primary model failed, trying flash fallback", { err: String(err1) });
+  } catch (err) {
+    if (isElevenLabsError(err)) throw err; // Don't retry auth/quota errors.
+    log("TTS primary model failed, trying flash fallback", { err: String(err).slice(0, 200) });
     return Buffer.from(await tryModel("eleven_flash_v2_5"));
   }
+}
+
+function isElevenLabsError(err: unknown): err is ElevenLabsTtsError {
+  return typeof err === "object" && err !== null && "code" in err;
 }
 
 // ─── Local VoxCPM2 TTS for Chinese dialects ───────────────────────────────────
@@ -804,12 +902,25 @@ router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
 router.post("/ai/tts", async (req, res): Promise<void> => {
   const { text, character, dialect } = req.body as { text?: unknown; character?: unknown; dialect?: unknown };
   if (typeof text !== "string" || !text.trim()) {
-    res.status(400).json({ error: "text required" }); return;
+    res.status(400).json({ code: "invalid_request", error: "text required" }); return;
   }
   const normalizedCharacter = typeof character === "string" ? character : "anuan";
+
+  // ── Daoshen guard ──────────────────────────────────────────────────────────
+  // Daoshen uses OpenAI Realtime WebRTC — never ElevenLabs TTS.  The only
+  // exception is when a VoxCPM local dialect is active, which is handled below.
+  if (normalizedCharacter === "daoshen" && !shouldUseVoxCpm(normalizedCharacter, dialect)) {
+    res.status(400).json({
+      code: "daoshen_uses_realtime",
+      error: "岛深使用 OpenAI Realtime 实时语音，不需要 TTS。",
+    });
+    return;
+  }
+
   try {
     const log = (msg: string, data?: object) => req.log.info(data ?? {}, msg);
 
+    // ── VoxCPM branch (daoshen + dialect only) ─────────────────────────────
     if (shouldUseVoxCpm(normalizedCharacter, dialect)) {
       try {
         const buf = await voxCpmTts(text.trim(), dialect, log);
@@ -820,24 +931,55 @@ router.post("/ai/tts", async (req, res): Promise<void> => {
         return;
       } catch (err) {
         req.log.error({ err: String(err), dialect }, "VoxCPM TTS failed");
-        res.status(502).json({ error: "VoxCPM TTS unavailable" });
+        res.status(502).json({ code: "voxcpm_unavailable", error: "VoxCPM TTS unavailable" });
         return;
       }
     }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) {
-      res.status(503).json({ error: "TTS not configured" }); return;
+    // ── ElevenLabs branch (暮歌 / 阿暖 only) ───────────────────────────────
+    if (!ELEVENLABS_CHARACTERS.has(normalizedCharacter)) {
+      res.status(400).json({
+        code: "unsupported_character",
+        error: `TTS not available for character "${normalizedCharacter}". Use 暮歌 or 阿暖.`,
+      });
+      return;
     }
 
-    const buf = await elevenLabsTts(text.trim(), normalizedCharacter, apiKey, log);
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("X-TTS-Provider", "elevenlabs");
-    res.send(buf);
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      res.status(503).json({ code: "missing_api_key", error: "ElevenLabs TTS not configured" });
+      return;
+    }
+
+    try {
+      const buf = await elevenLabsTts(text.trim(), normalizedCharacter, apiKey, log);
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("X-TTS-Provider", "elevenlabs");
+      res.send(buf);
+    } catch (err) {
+      if (isElevenLabsError(err)) {
+        req.log.error({
+          code: err.code,
+          status: err.status,
+          requestId: err.requestId,
+          message: err.message.slice(0, 240),
+        }, "ElevenLabs TTS failed");
+        const httpStatus = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
+        res.status(httpStatus).json({ code: err.code, error: err.message });
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        const isTimeout = message.includes("TIMEOUT") || message.includes("aborted");
+        req.log.error({ err: message.slice(0, 300) }, "ElevenLabs TTS failed — unexpected");
+        res.status(502).json({
+          code: isTimeout ? "elevenlabs_timeout" : "elevenlabs_unavailable",
+          error: isTimeout ? "ElevenLabs TTS timed out" : "ElevenLabs TTS unavailable",
+        });
+      }
+    }
   } catch (err) {
-    req.log.error({ err: String(err) }, "TTS failed — full detail above");
-    res.status(502).json({ error: String(err) });
+    req.log.error({ err: String(err).slice(0, 300) }, "TTS endpoint unexpected error");
+    res.status(502).json({ code: "elevenlabs_unavailable", error: "ElevenLabs TTS unavailable" });
   }
 });
 
