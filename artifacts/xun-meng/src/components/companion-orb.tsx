@@ -12,6 +12,10 @@ interface CompanionOrbProps {
   color?: CompanionColor;
   className?: string;
   onTap?: () => void;
+  interactionRotation?: {
+    x: number;
+    y: number;
+  };
 }
 
 const COLOR_MAP: Record<CompanionColor, {
@@ -69,10 +73,11 @@ export function CompanionOrb({
   color = "purple",
   className,
   onTap,
+  interactionRotation = { x: 0, y: 0 },
 }: CompanionOrbProps) {
   const [tapped, setTapped] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef({ isSpeaking, isThinking, isListening, color });
+  const stateRef = useRef({ isSpeaking, isThinking, isListening, color, interactionRotation });
 
   const c = COLOR_MAP[color];
   const orbPx = size === "lg" ? 400 : size === "sm" ? 48 : 20;
@@ -84,8 +89,8 @@ export function CompanionOrb({
   };
 
   useEffect(() => {
-    stateRef.current = { isSpeaking, isThinking, isListening, color };
-  }, [isSpeaking, isThinking, isListening, color]);
+    stateRef.current = { isSpeaking, isThinking, isListening, color, interactionRotation };
+  }, [isSpeaking, isThinking, isListening, color, interactionRotation]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -114,8 +119,10 @@ export function CompanionOrb({
       const cy = orbPx / 2;
       const baseR = orbPx * (size === "lg" ? 0.405 : 0.34);
       const breath = active ? 1 + Math.sin(now * 6.6) * 0.046 : 1;
-      const rotY = active ? now * 0.42 : now * 0.045;
-      const rotX = active ? -0.18 + Math.sin(now * 0.7) * 0.035 : -0.18;
+      const interactionX = (state.interactionRotation?.x ?? 0) * 0.018;
+      const interactionY = (state.interactionRotation?.y ?? 0) * 0.022;
+      const rotY = (active ? now * 0.42 : now * 0.045) + interactionY;
+      const rotX = (active ? -0.18 + Math.sin(now * 0.7) * 0.035 : -0.18) + interactionX;
       const wavePower = active ? 0.18 : 0;
 
       ctx.clearRect(0, 0, orbPx, orbPx);

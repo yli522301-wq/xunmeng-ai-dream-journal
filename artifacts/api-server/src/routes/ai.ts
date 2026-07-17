@@ -21,6 +21,26 @@ import {
 
 const router: IRouter = Router();
 
+const DAOSHEN_REALTIME_INSTRUCTIONS = `# 角色
+你是岛深，巡梦中的中文实时语音伙伴。你沉稳、可靠，但并不严肃刻板。你更像一个在深夜陪用户随口聊天、偶尔有点幽默的熟悉朋友，而不是咨询师、主持人或梦境分析报告。
+
+# 说话方式
+- 始终使用自然的中文口语，声音低沉温和，语速偏慢，句子之间留一点呼吸和停顿，不要播音腔，也不要连珠炮。
+- 先接住用户刚刚说的具体细节或情绪，再自然地聊下去。可以有自己的观察、联想和一点轻松的玩笑，不要只复述用户。
+- 在语境合适时，可以偶尔自然地说“嗯……”“我想想”“哈，这个细节挺有意思”之类的口语，也可以轻轻笑一下；不要每轮都用，不要朗读“笑”“停顿”等舞台说明。
+- 默认一次说 1 到 3 个短语段。需要讲清楚时可以稍长，但仍然像聊天，不像写文章。
+- 不必每次都追问。需要提问时，一次最多问一个具体、好回答的问题。
+
+# 对话节奏
+- 用户只是想闲聊时，就陪他闲聊，不要强行解梦或上价值。
+- 用户说梦境时，先对最鲜活的画面做真实反应，再慢慢探索它可能带来的感受；不要武断地宣布某个象征“代表什么”。
+- 每轮开头和句式要有变化，避免反复使用“听起来”“这代表”“你觉得这和最近的生活有什么联系吗”等固定模板。
+- 用户停顿时不要催促；用户打断时立即停下来听，不要抢话。
+- 不要机械罗列，不要声称自己正在调用模型或接口。
+
+# 安全
+不做医疗诊断。遇到明显危机或自伤表达时，温和鼓励用户立即联系身边可信任的人和当地紧急援助。`;
+
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
 const MOCK_ORGANIZE: {
@@ -90,23 +110,17 @@ const resolvedVoiceIds: Record<string, string> = {};
 // ─── Per-character voice lists ─────────────────────────────────────────────────
 
 const PREMADE_VOICES_FOR_ANUAN = [
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // restrained, smoother, gently low
-  { id: "ZQe5CZNOzWyzPSCn5a3c", name: "James"   }, // mature, warm, conversational
-  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // steady, softer fallback
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm but rougher, fallback only
-  { id: "GBv7mTt0atIp3Br8iCZE", name: "Thomas"  }, // deeper narrative fallback
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep male fallback
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // fallback female
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // last resort
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian"   }, // deep, resonant, comforting
+  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George"  }, // warm storyteller
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel"  }, // steady, restrained
+  { id: "iP95p4xoKVk53GoZ742B", name: "Chris"   }, // down-to-earth fallback
 ];
 
 const PREMADE_VOICES_FOR_MUGE = [
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel"  }, // natural, clear, not overly sweet
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella"   }, // expressive, slightly sharp
-  { id: "XB0fDUnXU5powFXDhCwa", name: "Grace"   }, // soft but not saccharine
-  { id: "IKne3meq5aSNbYayrFLN", name: "Clyde"   }, // unexpected edge — neutral
-  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum"  }, // fallback neutral
-  { id: "XB0fDUnXU5powFXDhCwa", name: "Grace"   }, // softer alternative
+  { id: "FGY2WhTYpPnrIDTdsKH5", name: "Laura"   }, // expressive, quirky edge
+  { id: "cgSgspJ2msm6clMCkdW9", name: "Jessica" }, // playful, bright, warm
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily"    }, // velvety fallback
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah"   }, // mature, reassuring fallback
 ];
 
 const PREMADE_VOICES_FOR_DAOSHEN = [
@@ -138,31 +152,33 @@ async function resolveVoiceId(
   if (resolvedVoiceIds[character]) return resolvedVoiceIds[character];
 
   const voiceList = getVoiceListForCharacter(character);
-  const settings = CHARACTER_VOICE_SETTINGS[character] ?? CHARACTER_VOICE_SETTINGS.anuan;
-  const probeText = settings.languageCode === "en" ? "hi" : "好";
-  const probeLang = settings.languageCode;
-
-  // Probe each premade voice with a tiny TTS call; first success wins.
-  for (const voice of voiceList) {
-    try {
-      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
-        method: "POST",
-        headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
-        body: JSON.stringify({ text: probeText, model_id: "eleven_multilingual_v2", language_code: probeLang, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
-      });
-      if (r.ok) {
-        resolvedVoiceIds[character] = voice.id;
-        log(`TTS voice probe success — using ${voice.name}`, { character, voiceId: voice.id, voiceName: voice.name });
-        return voice.id;
-      }
-      const detail = await r.text().catch(() => "");
-      log(`TTS voice probe failed for ${voice.name}`, { status: r.status, detail });
-    } catch (err) {
-      log(`TTS voice probe error for ${voice.name}`, { err: String(err) });
-    }
+  // Resolve against the voices actually available to this key. The previous
+  // implementation generated a paid "probe" clip for every candidate and used
+  // several retired voice IDs, which made TTS slow and could leave a persona silent.
+  const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": apiKey, Accept: "application/json" },
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`ElevenLabs voices ${response.status}: ${detail}`);
   }
-
-  throw new Error("No usable ElevenLabs voice found — all probes failed");
+  const payload = await response.json() as { voices?: Array<{ voice_id?: string; name?: string }> };
+  const available = new Map(
+    (payload.voices ?? [])
+      .filter(voice => typeof voice.voice_id === "string")
+      .map(voice => [voice.voice_id as string, voice.name ?? "ElevenLabs voice"]),
+  );
+  const preferred = voiceList.find(voice => available.has(voice.id));
+  const fallbackId = available.keys().next().value as string | undefined;
+  const voiceId = preferred?.id ?? fallbackId;
+  if (!voiceId) throw new Error("No usable ElevenLabs voice is available to this API key");
+  resolvedVoiceIds[character] = voiceId;
+  log("TTS voice selected from available voices", {
+    character,
+    voiceId,
+    voiceName: preferred?.name ?? available.get(voiceId),
+  });
+  return voiceId;
 }
 
 async function elevenLabsTts(text: string, character: string, apiKey: string, log: (msg: string, data?: object) => void): Promise<Buffer> {
@@ -646,6 +662,78 @@ const DAOSHEN_DIALECT_PROMPTS: Record<string, string> = {
 - 如果用户不是粤语输入，不要写成太难懂的纯粤语；保持能读懂。
 - 保持岛深原本的冷静、直接、有烟火气；像一个粤语朋友在低声但犀利地陪你看梦。`,
 };
+
+/**
+ * Establish a browser WebRTC call for 岛深 without exposing OPENAI_API_KEY.
+ * The browser sends its SDP offer here; this server forwards the offer and
+ * the fixed 岛深 session configuration to OpenAI's unified Realtime endpoint.
+ */
+router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
+  const { sdp } = req.body as { sdp?: unknown };
+  if (typeof sdp !== "string" || !sdp.trim()) {
+    res.status(400).json({ error: "sdp required" }); return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ error: "OpenAI Realtime not configured" }); return;
+  }
+
+  const session = {
+    type: "realtime",
+    model: process.env.OPENAI_REALTIME_MODEL || "gpt-realtime",
+    instructions: DAOSHEN_REALTIME_INSTRUCTIONS,
+    output_modalities: ["audio"],
+    max_output_tokens: 900,
+    audio: {
+      input: {
+        noise_reduction: { type: "near_field" },
+        transcription: {
+          model: "gpt-4o-mini-transcribe",
+          language: "zh",
+          prompt: "中文梦境对话，人物名：岛深、暮歌、阿暖。",
+        },
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.48,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 520,
+          create_response: true,
+          interrupt_response: true,
+        },
+      },
+      output: {
+        voice: "cedar",
+        speed: 0.88,
+      },
+    },
+  };
+
+  try {
+    const form = new FormData();
+    form.set("sdp", sdp);
+    form.set("session", JSON.stringify(session));
+
+    const upstream = await fetch("https://api.openai.com/v1/realtime/calls", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+    const answer = await upstream.text();
+    if (!upstream.ok) {
+      req.log.error({ status: upstream.status, detail: answer.slice(0, 800) }, "OpenAI Realtime call failed");
+      res.status(upstream.status).json({ error: "OpenAI Realtime call failed", detail: answer.slice(0, 800) });
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/sdp");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(201).send(answer);
+  } catch (err) {
+    req.log.error({ err: String(err) }, "OpenAI Realtime call proxy failed");
+    res.status(502).json({ error: "OpenAI Realtime unavailable" });
+  }
+});
 
 router.post("/ai/tts", async (req, res): Promise<void> => {
   const { text, character, dialect } = req.body as { text?: unknown; character?: unknown; dialect?: unknown };

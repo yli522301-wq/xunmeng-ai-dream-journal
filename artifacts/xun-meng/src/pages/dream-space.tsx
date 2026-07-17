@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type PointerEvent } from "react";
 import {
   useGetAiSettings, useDreamChat, useCreateDream, useAiRecognizeImage,
 } from "@workspace/api-client-react";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Mic, Square, Image as ImageIcon, Sparkles, Music2, X, BookOpen, Palette, MessageCircle, Headphones, Search, Upload, Play, Pause } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CompanionOrb, CompanionColor } from "@/components/companion-orb";
@@ -19,33 +19,30 @@ import { MineradioParticles } from "@/components/mineradio-particles";
 import { useAmbientSound, type AmbientSoundType } from "@/hooks/use-ambient-sound";
 import { useAmbientMusic, type MusicType } from "@/hooks/use-ambient-music";
 import { DreamAntigravityBackground } from "@/components/DreamAntigravityBackground";
+import {
+  AlbumParticleStage,
+  getDefaultAlbumParticleCover,
+  type ParticleAudioMetrics,
+} from "@/components/album-particle-stage";
 import { API_BASE } from "@/lib/api";
+import { DaoshenRealtimeClient, type DaoshenRealtimePhase } from "@/lib/daoshen-realtime";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CharKey = "daoshen" | "muge" | "anuan";
 export type ResponseMode = "solo" | "multi" | "cross";
 export type VoiceStatus = "idle" | "requesting" | "recording" | "processing" | "error";
+type ChatVisualStyle = "orb" | "album-particle";
+type ParticleMode = "chat" | "music";
 type DaoshenDialect = "standard" | "sichuan" | "shaanxi" | "cantonese";
 
 const FALLBACK_TRANSCRIPT = "我梦到自己一直在赶路，但怎么都赶不上。";
 const DAOSHEN_DIALECT_STORAGE_KEY = "xm-daoshen-dialect";
-const DAOSHEN_DIALECTS: Array<{ key: DaoshenDialect; label: string; hint: string }> = [
-  { key: "standard",  label: "普通话", hint: "冷静直接" },
-  { key: "sichuan",   label: "四川话", hint: "莫慌，慢慢说" },
-  { key: "shaanxi",   label: "陕西话", hint: "甭急，咱慢慢看" },
-  { key: "cantonese", label: "粤语",   hint: "唔使急，慢慢讲" },
-];
-
 function loadDaoshenDialect(): DaoshenDialect {
   try {
     const raw = localStorage.getItem(DAOSHEN_DIALECT_STORAGE_KEY);
     if (raw === "standard" || raw === "sichuan" || raw === "shaanxi" || raw === "cantonese") return raw;
   } catch { /* ignore */ }
   return "standard";
-}
-
-function saveDaoshenDialect(k: DaoshenDialect) {
-  try { localStorage.setItem(DAOSHEN_DIALECT_STORAGE_KEY, k); } catch { /* ignore */ }
 }
 
 export interface ChatMessage {
@@ -95,6 +92,26 @@ interface NeteaseSong {
   cover: string;
   duration: number;
   source: "netease";
+}
+
+interface LyricLine {
+  time: number;
+  text: string;
+}
+
+function parseLrc(raw: string): LyricLine[] {
+  return raw
+    .split(/\r?\n/)
+    .flatMap(line => {
+      const stamps = [...line.matchAll(/\[(\d{1,3}):(\d{2}(?:\.\d{1,3})?)\]/g)];
+      const text = line.replace(/\[[^\]]+\]/g, "").trim();
+      if (!text || stamps.length === 0) return [];
+      return stamps.map(match => ({
+        time: Number(match[1]) * 60 + Number(match[2]),
+        text,
+      }));
+    })
+    .sort((a, b) => a.time - b.time);
 }
 
 export interface DreamCharConfig {
@@ -425,6 +442,96 @@ function saveAvatars(a: Record<CharKey, string | null>) {
   try { localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(a)); } catch { /* ignore */ }
 }
 
+function AlbumParticleCore({
+  cover,
+  playing,
+  hsl,
+}: {
+  cover: string;
+  playing: boolean;
+  hsl: string;
+}) {
+  return (
+    <motion.div
+      className="absolute left-1/2 top-1/2 pointer-events-none overflow-hidden rounded-full"
+      style={{
+        width: 190,
+        height: 190,
+        x: "-50%",
+        y: "-50%",
+        zIndex: 8,
+        mixBlendMode: "screen",
+        transformStyle: "preserve-3d",
+        maskImage: "radial-gradient(circle, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.70) 44%, rgba(0,0,0,0.22) 68%, transparent 82%)",
+        WebkitMaskImage: "radial-gradient(circle, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.70) 44%, rgba(0,0,0,0.22) 68%, transparent 82%)",
+      }}
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{
+        opacity: playing ? [0.26, 0.40, 0.30] : 0.24,
+        scale: playing ? [0.985, 1.025, 0.995] : 0.98,
+        rotate: playing ? [0, 1.4, -0.8, 0] : 0,
+      }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{
+        opacity: { duration: 4.6, repeat: playing ? Infinity : 0, ease: "easeInOut" },
+        scale: { duration: 4.6, repeat: playing ? Infinity : 0, ease: "easeInOut" },
+        rotate: { duration: 18, repeat: playing ? Infinity : 0, ease: "easeInOut" },
+      }}
+    >
+      <img
+        src={cover}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{
+          filter: "brightness(0.58) contrast(1.22) saturate(0.78) blur(0.15px)",
+          opacity: 0.82,
+        }}
+      />
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `
+            radial-gradient(circle at 50% 45%, transparent 0%, rgba(0,0,0,0.04) 48%, rgba(0,0,0,0.58) 100%),
+            radial-gradient(circle at 50% 50%, hsl(${hsl} / 0.10) 0%, transparent 70%)
+          `,
+        }}
+      />
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `
+            radial-gradient(circle, rgba(255,255,255,0.46) 0 1px, transparent 1.35px),
+            radial-gradient(circle, hsl(${hsl} / 0.34) 0 0.8px, transparent 1.15px)
+          `,
+          backgroundSize: "9px 9px, 13px 13px",
+          backgroundPosition: "0 0, 4px 5px",
+          opacity: 0.40,
+          mixBlendMode: "screen",
+        }}
+      />
+      <motion.div
+        className="absolute inset-[-16px] rounded-full"
+        style={{
+          background: `radial-gradient(circle, hsl(${hsl} / 0.28) 0%, transparent 60%)`,
+          filter: "blur(16px)",
+          mixBlendMode: "screen",
+        }}
+        animate={{ opacity: playing ? [0.22, 0.42, 0.24] : 0.18 }}
+        transition={{ duration: 3.8, repeat: playing ? Infinity : 0, ease: "easeInOut" }}
+      />
+    </motion.div>
+  );
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function isSpaceDragBlocked(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("button,a,input,textarea,select,[role='button'],[data-no-space-drag='true']"));
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 export default function DreamSpace() {
   const { toast } = useToast();
@@ -432,7 +539,7 @@ export default function DreamSpace() {
   const search = useSearch();
 
   const [activeKey, setActiveKey]  = useState<CharKey>(loadCharKey);
-  const [daoshenDialect, setDaoshenDialectState] = useState<DaoshenDialect>(loadDaoshenDialect);
+  const [daoshenDialect] = useState<DaoshenDialect>(loadDaoshenDialect);
   const { data: settings }         = useGetAiSettings();
   const dreamChatMutation    = useDreamChat();
   const createDreamMutation  = useCreateDream();
@@ -445,6 +552,14 @@ export default function DreamSpace() {
   const [isThinking,    setIsThinking]    = useState(false);
   const [thinkingMsg,   setThinkingMsg]   = useState("正在感应…");
   const [avatars,       setAvatars]       = useState<Record<CharKey, string | null>>(loadAvatars);
+  const [chatVisualStyle, setChatVisualStyle] = useState<ChatVisualStyle>(() => {
+    try { return localStorage.getItem("xm-chat-visual-style") === "album-particle" ? "album-particle" : "orb"; }
+    catch { return "orb"; }
+  });
+  const [visualStyleOpen, setVisualStyleOpen] = useState(false);
+  const [particleMode, setParticleMode] = useState<ParticleMode>("chat");
+  const [particleCover, setParticleCover] = useState<string | null>(null);
+  const particleCoverInputRef = useRef<HTMLInputElement | null>(null);
 
   const [pendingImageDataUrl, setPendingImageDataUrl] = useState<string | null>(null);
   const [bgMusicOpen,    setBgMusicOpen]    = useState(false);
@@ -456,6 +571,10 @@ export default function DreamSpace() {
   const [neteaseQuery,   setNeteaseQuery]   = useState("");
   const [neteaseSongs,   setNeteaseSongs]   = useState<NeteaseSong[]>([]);
   const [neteaseLoading, setNeteaseLoading] = useState(false);
+  const [musicSearchOpen, setMusicSearchOpen] = useState(false);
+  const [lyricsVisible, setLyricsVisible] = useState(false);
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [musicCurrentTime, setMusicCurrentTime] = useState(0);
   const bgAudioRef          = useRef<HTMLAudioElement | null>(null);
   const [musicContext, setMusicContext] = useState<MusicContext | null>(null);
   const musicContextRef = useRef<MusicContext | null>(null);
@@ -463,20 +582,51 @@ export default function DreamSpace() {
   const [editingDreamId, setEditingDreamId] = useState<string | null>(null);
   const [dreamMode, setDreamMode] = useState<"new" | "continue">("new");
   const resumeSummaryRef = useRef<{ title: string; summary: string } | null>(null);
+  const [spaceTilt, setSpaceTilt] = useState({ x: 0, y: 0, dragging: false });
+  const spaceDragRef = useRef({
+    active: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    baseX: 0,
+    baseY: 0,
+  });
 
   // ── ElevenLabs TTS state ──────────────────────────────────────────────────
-  const [ttsEnabled, setTtsEnabledState] = useState(() => {
+  const [ttsEnabled] = useState(() => {
     try { return localStorage.getItem("xm-tts-enabled") !== "false"; } catch { return true; }
   });
-  const [ttsVolume, setTtsVolumeState] = useState(() => {
+  const [ttsVolume] = useState(() => {
     try { return Number(localStorage.getItem("xm-tts-volume") ?? "0.7"); } catch { return 0.7; }
   });
   const [ttsStatus, setTtsStatus] = useState<"idle" | "loading" | "playing" | "blocked">("idle");
-  const [ttsVoiceOpen, setTtsVoiceOpen] = useState(false);
   const ttsEnabledRef  = useRef(true);
   const ttsVolumeRef   = useRef(0.7);
   const ttsAudioRef    = useRef<HTMLAudioElement | null>(null);
+  const daoshenRealtimeRef = useRef<DaoshenRealtimeClient | null>(null);
+  const daoshenRealtimeAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsCacheRef    = useRef<Map<string, string>>(new Map());
+  const particleAudioMetricsRef = useRef<ParticleAudioMetrics>({ bass: 0, mid: 0, treble: 0, beat: 0, energy: 0 });
+  const particleAudioContextRef = useRef<AudioContext | null>(null);
+  const particleAudioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const particleAudioSourcesRef = useRef(new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>());
+  const particleRealtimeSourcesRef = useRef(new WeakMap<MediaStream, {
+    source: MediaStreamAudioSourceNode;
+    analyser: AnalyserNode;
+  }>());
+  const particleAudioRafRef = useRef<number | null>(null);
+  const particleAudioMeterStateRef = useRef({
+    bassPeak: 0.04,
+    midPeak: 0.03,
+    treblePeak: 0.02,
+    energyPeak: 0.035,
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    energy: 0,
+    beat: 0,
+    previousEnergy: 0,
+  });
   const bgMusicInputRef     = useRef<HTMLInputElement>(null);
   const mediaRecorderRef    = useRef<MediaRecorder | null>(null);
   const audioChunksRef      = useRef<Blob[]>([]);
@@ -824,6 +974,9 @@ export default function DreamSpace() {
 
   // Persist avatars
   useEffect(() => { saveAvatars(avatars); }, [avatars]);
+  useEffect(() => {
+    try { localStorage.setItem("xm-chat-visual-style", chatVisualStyle); } catch { /* ignore */ }
+  }, [chatVisualStyle]);
   useEffect(() => { saveAmbientVisualSettings(ambientVisualSettings); }, [ambientVisualSettings]);
 
   const handleAvatarChange = useCallback((key: CharKey, dataUrl: string) => {
@@ -887,18 +1040,28 @@ export default function DreamSpace() {
   const isSpeaking = (!!displayReply && !isThinking) || !!typingMsgId;
   const orbIsSpeaking = ttsStatus === "playing";
   const hsl        = charConfig.hsl;
+  const immersiveMusic = chatVisualStyle === "album-particle" && particleMode === "music";
+  const activeLyricIndex = useMemo(() => {
+    if (lyrics.length === 0) return -1;
+    for (let index = lyrics.length - 1; index >= 0; index -= 1) {
+      if (musicCurrentTime >= lyrics[index].time) return index;
+    }
+    return 0;
+  }, [lyrics, musicCurrentTime]);
 
   // ── Tab switch ───────────────────────────────────────────────────────────
   const handleTabClick = (key: CharKey) => {
     if (activeKey === key) return;
+    if (activeKey === "daoshen") {
+      daoshenRealtimeRef.current?.stop();
+      daoshenRealtimeRef.current = null;
+      daoshenRealtimeAudioRef.current = null;
+      setVoiceStatus("idle");
+      setTtsStatus("idle");
+    }
     setActiveKey(key);
     saveCharKey(key);
     // Intentionally do NOT clear messages — shared thread
-  };
-
-  const setDaoshenDialect = (dialect: DaoshenDialect) => {
-    setDaoshenDialectState(dialect);
-    saveDaoshenDialect(dialect);
   };
 
   // ── Keep TTS refs in sync with state ─────────────────────────────────────
@@ -906,26 +1069,260 @@ export default function DreamSpace() {
   useEffect(() => {
     ttsVolumeRef.current = ttsVolume;
     if (ttsAudioRef.current) ttsAudioRef.current.volume = ttsVolume;
+    daoshenRealtimeRef.current?.setVolume(ttsVolume);
   }, [ttsVolume]);
 
-  const setTtsEnabled = (v: boolean) => {
-    setTtsEnabledState(v);
-    ttsEnabledRef.current = v;
-    try { localStorage.setItem("xm-tts-enabled", String(v)); } catch { /* ignore */ }
-    if (!v) {
-      ttsAudioRef.current?.pause();
-      ttsAudioRef.current = null;
+  const startParticleAudioMeter = (analyser: AnalyserNode, replaceCurrent = false) => {
+    if (replaceCurrent && particleAudioRafRef.current !== null) {
+      cancelAnimationFrame(particleAudioRafRef.current);
+      particleAudioRafRef.current = null;
+      particleAudioMeterStateRef.current = {
+        bassPeak: 0.04, midPeak: 0.03, treblePeak: 0.02, energyPeak: 0.035,
+        bass: 0, mid: 0, treble: 0, energy: 0, beat: 0, previousEnergy: 0,
+      };
+    }
+    if (particleAudioRafRef.current !== null) return;
+    const frequency = new Uint8Array(analyser.frequencyBinCount);
+    const waveform = new Uint8Array(analyser.fftSize);
+    const average = (from: number, to: number) => {
+      const end = Math.max(from + 1, Math.min(frequency.length, to));
+      let sum = 0;
+      for (let i = from; i < end; i += 1) sum += frequency[i] / 255;
+      return sum / (end - from);
+    };
+    const follow = (current: number, target: number, attack: number, release: number) =>
+      current + (target - current) * (target > current ? attack : release);
+
+    const tick = () => {
+      analyser.getByteFrequencyData(frequency);
+      analyser.getByteTimeDomainData(waveform);
+      const state = particleAudioMeterStateRef.current;
+      const bassEnd = Math.max(8, Math.floor(frequency.length * 0.055));
+      const midEnd = Math.max(bassEnd + 1, Math.floor(frequency.length * 0.34));
+      const trebleEnd = Math.max(midEnd + 1, Math.floor(frequency.length * 0.72));
+      const rawBass = average(1, bassEnd);
+      const rawMid = average(bassEnd, midEnd);
+      const rawTreble = average(midEnd, trebleEnd);
+      let rms = 0;
+      for (let i = 0; i < waveform.length; i += 1) {
+        const sample = (waveform[i] - 128) / 128;
+        rms += sample * sample;
+      }
+      rms = Math.sqrt(rms / waveform.length);
+
+      state.bassPeak = Math.max(0.04, state.bassPeak * 0.995, rawBass);
+      state.midPeak = Math.max(0.03, state.midPeak * 0.994, rawMid);
+      state.treblePeak = Math.max(0.02, state.treblePeak * 0.993, rawTreble);
+      state.energyPeak = Math.max(0.035, state.energyPeak * 0.995, rms);
+      const bassTarget = Math.min(0.90, rawBass / Math.max(0.045, state.bassPeak * 0.76));
+      const midTarget = Math.min(0.78, rawMid / Math.max(0.032, state.midPeak * 0.78));
+      const trebleTarget = Math.min(0.62, rawTreble / Math.max(0.024, state.treblePeak * 0.80));
+      const energyTarget = Math.min(0.84, rms / Math.max(0.038, state.energyPeak * 0.74));
+      const onset = Math.max(0, energyTarget - state.previousEnergy);
+      state.previousEnergy = state.previousEnergy * 0.82 + energyTarget * 0.18;
+      state.beat = Math.max(state.beat * 0.82, onset > 0.055 ? Math.min(0.62, onset * 2.8) : 0);
+      state.bass = follow(state.bass, bassTarget, 0.30, 0.08);
+      state.mid = follow(state.mid, midTarget, 0.22, 0.07);
+      state.treble = follow(state.treble, trebleTarget, 0.20, 0.06);
+      state.energy = follow(state.energy, energyTarget, 0.24, 0.07);
+      particleAudioMetricsRef.current = {
+        bass: state.bass,
+        mid: state.mid,
+        treble: state.treble,
+        beat: state.beat,
+        energy: state.energy,
+      };
+      particleAudioRafRef.current = requestAnimationFrame(tick);
+    };
+    tick();
+  };
+
+  const connectAudioToAlbumParticles = async (audio: HTMLMediaElement) => {
+    const AudioContextCtor = window.AudioContext
+      || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = particleAudioContextRef.current ?? new AudioContextCtor();
+    particleAudioContextRef.current = context;
+    if (context.state === "suspended") await context.resume();
+    let analyser = particleAudioAnalyserRef.current;
+    if (!analyser) {
+      analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.72;
+      analyser.connect(context.destination);
+      particleAudioAnalyserRef.current = analyser;
+    }
+    let source = particleAudioSourcesRef.current.get(audio);
+    if (!source) {
+      source = context.createMediaElementSource(audio);
+      source.connect(analyser);
+      particleAudioSourcesRef.current.set(audio, source);
+    }
+    startParticleAudioMeter(analyser);
+  };
+
+  const connectRealtimeAudioToAlbumParticles = async (audio: HTMLAudioElement) => {
+    const stream = audio.srcObject;
+    if (!(stream instanceof MediaStream)) {
+      await connectAudioToAlbumParticles(audio);
+      return;
+    }
+    const AudioContextCtor = window.AudioContext
+      || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = particleAudioContextRef.current ?? new AudioContextCtor();
+    particleAudioContextRef.current = context;
+    if (context.state === "suspended") await context.resume();
+
+    let entry = particleRealtimeSourcesRef.current.get(stream);
+    if (!entry) {
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.64;
+      // Analyse the WebRTC MediaStream directly. The <audio> element remains
+      // responsible for playback, so this analysis branch must not feed the
+      // destination and create doubled/echoed speech.
+      const source = context.createMediaStreamSource(stream);
+      source.connect(analyser);
+      entry = { source, analyser };
+      particleRealtimeSourcesRef.current.set(stream, entry);
+    }
+    startParticleAudioMeter(entry.analyser, true);
+  };
+
+  const playWithParticleAudio = async (audio: HTMLMediaElement) => {
+    try {
+      await connectAudioToAlbumParticles(audio);
+    } catch (error) {
+      console.warn("[particle-audio] analyser unavailable, continuing playback", error);
+    }
+    return audio.play();
+  };
+
+  useEffect(() => () => {
+    if (particleAudioRafRef.current !== null) cancelAnimationFrame(particleAudioRafRef.current);
+    particleAudioRafRef.current = null;
+    particleAudioMetricsRef.current = { bass: 0, mid: 0, treble: 0, beat: 0, energy: 0 };
+    void particleAudioContextRef.current?.close();
+    particleAudioContextRef.current = null;
+  }, []);
+
+  const appendRealtimeMessage = (role: "user" | "daoshen", text: string) => {
+    const content = text.trim();
+    if (!content) return;
+    setMessages(prev => {
+      const last = prev[prev.length - 1];
+      if (last?.role === role && last.content === content) return prev;
+      return [...prev, {
+        id: genId(),
+        role,
+        type: role === "user" ? "audio" : "text",
+        content,
+        transcription: role === "user" ? content : undefined,
+        timestamp: nowTime(),
+      }];
+    });
+  };
+
+  const applyDaoshenRealtimePhase = (phase: DaoshenRealtimePhase) => {
+    if (phase === "connecting") {
+      setVoiceStatus("requesting");
       setTtsStatus("idle");
-      // Restore bg music if ducked
-      if (bgAudioRef.current) bgAudioRef.current.volume = bgMusicVolume;
+      return;
+    }
+    if (phase === "thinking") {
+      setVoiceStatus("processing");
+      setTtsStatus("idle");
+      return;
+    }
+    if (phase === "speaking") {
+      // The mic remains live while 岛深 speaks, allowing server VAD to interrupt him.
+      setVoiceStatus("recording");
+      setTtsStatus("playing");
+      return;
+    }
+    if (phase === "listening") {
+      setVoiceStatus("recording");
+      setTtsStatus("idle");
+      return;
+    }
+    setVoiceStatus("idle");
+    setTtsStatus("idle");
+  };
+
+  const stopDaoshenRealtime = () => {
+    daoshenRealtimeRef.current?.stop();
+    daoshenRealtimeRef.current = null;
+    daoshenRealtimeAudioRef.current = null;
+    stopSubtitleSync();
+    subtitleFullRef.current = "";
+    setSubtitleText("");
+    if (particleMode === "chat") {
+      particleAudioMetricsRef.current = { bass: 0, mid: 0, treble: 0, beat: 0, energy: 0 };
+    }
+    setVoiceStatus("idle");
+    setTtsStatus("idle");
+  };
+
+  const toggleDaoshenRealtime = async () => {
+    if (daoshenRealtimeRef.current) {
+      stopDaoshenRealtime();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
+      toast({ title: "当前浏览器不支持实时语音，请使用最新版 Chrome 或 Safari。" });
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    ttsAudioRef.current?.pause();
+    ttsAudioRef.current = null;
+    stopSubtitleSync();
+    subtitleFullRef.current = "";
+    setSubtitleText("");
+
+    const client = new DaoshenRealtimeClient({
+      onPhase: applyDaoshenRealtimePhase,
+      onRemoteAudio: audio => {
+        daoshenRealtimeAudioRef.current = audio;
+        audio.volume = ttsVolumeRef.current;
+        void connectRealtimeAudioToAlbumParticles(audio).catch(error => {
+          console.warn("[daoshen-realtime] particle analyser unavailable", error);
+        });
+      },
+      onUserTranscript: text => appendRealtimeMessage("user", text),
+      onAssistantTranscriptStart: () => {
+        // Realtime captions are driven by OpenAI transcript deltas. Disable the
+        // older duration-based TTS timer so it cannot overwrite the current line.
+        stopSubtitleSync();
+        subtitleFullRef.current = "";
+        setSubtitleText("");
+      },
+      onAssistantTranscriptDelta: text => setSubtitleText(text),
+      onAssistantTranscript: text => {
+        appendRealtimeMessage("daoshen", text);
+        setSubtitleText(text);
+      },
+      onAssistantTranscriptEnd: () => setSubtitleText(""),
+      onError: error => {
+        console.error("[daoshen-realtime]", error);
+        toast({ title: "岛深的实时语音暂时没有接通，请重试。" });
+        stopDaoshenRealtime();
+      },
+    });
+    daoshenRealtimeRef.current = client;
+    client.setVolume(ttsVolumeRef.current);
+    try {
+      await client.start();
+    } catch {
+      if (daoshenRealtimeRef.current === client) stopDaoshenRealtime();
     }
   };
-  const setTtsVolume = (v: number) => {
-    setTtsVolumeState(v);
-    ttsVolumeRef.current = v;
-    try { localStorage.setItem("xm-tts-volume", String(v)); } catch { /* ignore */ }
-    if (ttsAudioRef.current) ttsAudioRef.current.volume = v;
-  };
+
+  useEffect(() => () => {
+    daoshenRealtimeRef.current?.stop();
+    daoshenRealtimeRef.current = null;
+  }, []);
 
   // ── TTS ──────────────────────────────────────────────────────────────────
   const speak = (text: string) => {
@@ -1050,7 +1447,7 @@ export default function DreamSpace() {
 
     setTtsStatus("playing");
     try {
-      await audio.play();
+      await playWithParticleAudio(audio);
       console.log("[TTS] play() success, duration:", audio.duration);
       // Calibrate typewriter speed to audio duration
       const dur = audio.duration || (text.length * 0.12);
@@ -1069,7 +1466,7 @@ export default function DreamSpace() {
 
   const handleManualPlay = () => {
     if (!ttsAudioRef.current) return;
-    ttsAudioRef.current.play().then(() => {
+    playWithParticleAudio(ttsAudioRef.current).then(() => {
       setTtsStatus("playing");
       console.log("[TTS] manual play() success");
     }).catch(err => {
@@ -1239,6 +1636,13 @@ export default function DreamSpace() {
 
   // ── Mic state machine ────────────────────────────────────────────────────
   const toggleMic = () => {
+    // 岛深 alone uses the persistent, interruptible OpenAI Realtime session.
+    // 暮歌 and 阿暖 continue through the existing record → transcribe → TTS flow.
+    if (activeKey === "daoshen") {
+      void toggleDaoshenRealtime();
+      return;
+    }
+
     // Block while busy
     if (voiceStatus === "requesting" || voiceStatus === "processing") return;
 
@@ -1340,6 +1744,18 @@ export default function DreamSpace() {
     e.target.value = "";
   };
 
+  const handleParticleCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file?.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = event => {
+      const result = String(event.target?.result || "");
+      if (result) setParticleCover(result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleBgMusicFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1347,6 +1763,9 @@ export default function DreamSpace() {
     const url = URL.createObjectURL(file);
     setBgMusicUrl(url);
     setBgMusicCover(null);
+    setLyrics([]);
+    setLyricsVisible(false);
+    setMusicCurrentTime(0);
     const name = file.name.replace(/\.[^.]+$/, "");
     setBgMusicName(name);
     const ext = file.name.split('.').pop()?.toLowerCase() ?? "";
@@ -1370,7 +1789,7 @@ export default function DreamSpace() {
     if (bgAudioRef.current) {
       bgAudioRef.current.src = url;
       bgAudioRef.current.volume = bgMusicVolume;
-      bgAudioRef.current.play()
+      playWithParticleAudio(bgAudioRef.current)
         .then(() => {
           setBgMusicPlaying(true);
           const updated = { ...ctx, isPlaying: true };
@@ -1408,7 +1827,10 @@ export default function DreamSpace() {
 
   const playNeteaseSong = async (song: NeteaseSong) => {
     try {
-      const resp = await fetch(`${API_BASE}/api/music/netease/song-url?id=${encodeURIComponent(song.id)}`);
+      const [resp, lyricResp] = await Promise.all([
+        fetch(`${API_BASE}/api/music/netease/song-url?id=${encodeURIComponent(song.id)}`),
+        fetch(`${API_BASE}/api/music/netease/lyric?id=${encodeURIComponent(song.id)}`).catch(() => null),
+      ]);
       const data = await resp.json() as { proxiedUrl?: string; message?: string; error?: string };
       if (!resp.ok || !data.proxiedUrl) {
         toast({ title: data.message || "这首歌暂时无法播放，可能受版权或会员限制。" });
@@ -1421,6 +1843,16 @@ export default function DreamSpace() {
       setBgMusicUrl(data.proxiedUrl);
       setBgMusicName(artist ? `${title} · ${artist}` : title);
       setBgMusicCover(song.cover ? `${API_BASE}/api/music/netease/cover?url=${encodeURIComponent(song.cover)}` : null);
+      if (lyricResp?.ok) {
+        const lyricData = await lyricResp.json() as { lyric?: string };
+        const nextLyrics = parseLrc(lyricData.lyric ?? "");
+        setLyrics(nextLyrics);
+        setLyricsVisible(nextLyrics.length > 0);
+      } else {
+        setLyrics([]);
+        setLyricsVisible(false);
+      }
+      setMusicCurrentTime(0);
 
       const ctx: MusicContext = {
         source: "local",
@@ -1437,7 +1869,7 @@ export default function DreamSpace() {
       if (bgAudioRef.current) {
         bgAudioRef.current.src = data.proxiedUrl;
         bgAudioRef.current.volume = bgMusicVolume;
-        await bgAudioRef.current.play();
+        await playWithParticleAudio(bgAudioRef.current);
         setBgMusicPlaying(true);
         const updated = { ...ctx, isPlaying: true };
         setMusicContext(updated);
@@ -1460,7 +1892,7 @@ export default function DreamSpace() {
         musicContextRef.current = updated;
       }
     } else {
-      bgAudioRef.current.play()
+      playWithParticleAudio(bgAudioRef.current)
         .then(() => {
           setBgMusicPlaying(true);
           if (musicContextRef.current) {
@@ -1471,6 +1903,27 @@ export default function DreamSpace() {
         })
         .catch(() => toast({ title: "这首音乐暂时无法播放，请换一首。" }));
     }
+  };
+
+  const switchParticleMode = (mode: ParticleMode) => {
+    if (mode === particleMode) return;
+    if (mode === "music") {
+      ttsAudioRef.current?.pause();
+      ttsAudioRef.current = null;
+      setTtsStatus("idle");
+      setBgMusicOpen(true);
+    } else {
+      setMusicSearchOpen(false);
+      bgAudioRef.current?.pause();
+      setBgMusicPlaying(false);
+      setBgMusicOpen(false);
+      if (musicContextRef.current) {
+        const updated = { ...musicContextRef.current, isPlaying: false };
+        setMusicContext(updated);
+        musicContextRef.current = updated;
+      }
+    }
+    setParticleMode(mode);
   };
 
   // ── Save dream ─────────────────────────────────────────────────────────────
@@ -1642,26 +2095,87 @@ export default function DreamSpace() {
 
   const hasMessages = messages.length > 0;
 
+  const handleSpacePointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || isSpaceDragBlocked(e.target)) return;
+
+    spaceDragRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: spaceTilt.x,
+      baseY: spaceTilt.y,
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setSpaceTilt(prev => ({ ...prev, dragging: true }));
+  }, [spaceTilt.x, spaceTilt.y]);
+
+  const handleSpacePointerMove = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    const drag = spaceDragRef.current;
+    if (!drag.active || drag.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    setSpaceTilt({
+      x: clampNumber(drag.baseX - dy / 22, -10, 10),
+      y: clampNumber(drag.baseY + dx / 18, -16, 16),
+      dragging: true,
+    });
+  }, []);
+
+  const endSpaceDrag = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    const drag = spaceDragRef.current;
+    if (!drag.active || drag.pointerId !== e.pointerId) return;
+
+    spaceDragRef.current.active = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    setSpaceTilt({ x: 0, y: 0, dragging: false });
+  }, []);
+
   return (
-    <div className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative">
+    <div
+      className="flex flex-col items-center w-full min-h-screen bg-[#05050A] overflow-hidden relative"
+      onPointerDown={handleSpacePointerDown}
+      onPointerMove={handleSpacePointerMove}
+      onPointerUp={endSpaceDrag}
+      onPointerCancel={endSpaceDrag}
+      style={{ perspective: 1200 }}
+    >
 
       {/* ── Background ── */}
-      <DreamAntigravityBackground
-        particleColor={charConfig.particleColor}
-        glowColor={charConfig.glowColor}
-      />
-      <AmbientBg theme={bgTheme} settings={ambientVisualSettings} />
-      <MineradioParticles
-        playing={bgMusicPlaying}
-        cover={bgMusicCover}
-        opacity={hasAtmosphere ? 0.48 : 0.30}
-        colors={{
-          primary: charConfig.particleColor,
-          secondary: charConfig.particleColor,
-          highlight: "#fff0b8",
-          glow: charConfig.particleColor,
+      <motion.div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          zIndex: 0,
+          transformStyle: "preserve-3d",
+          transformOrigin: "50% 50%",
         }}
-      />
+        animate={{
+          rotateX: spaceTilt.x * 0.28,
+          rotateY: spaceTilt.y * 0.24,
+          scale: spaceTilt.dragging ? 1.018 : 1,
+        }}
+        transition={{ type: "spring", stiffness: 72, damping: 18, mass: 0.7 }}
+      >
+        <DreamAntigravityBackground
+          particleColor={charConfig.particleColor}
+          glowColor={charConfig.glowColor}
+        />
+        <AmbientBg theme={bgTheme} settings={ambientVisualSettings} />
+        {chatVisualStyle === "orb" && (
+          <MineradioParticles
+            playing={bgMusicPlaying}
+            cover={null}
+            opacity={hasAtmosphere ? 0.48 : 0.30}
+            colors={{
+              primary: charConfig.particleColor,
+              secondary: charConfig.particleColor,
+              highlight: "#fff0b8",
+              glow: charConfig.particleColor,
+            }}
+          />
+        )}
+      </motion.div>
 
       {/* Character colour bloom */}
       <motion.div
@@ -1681,49 +2195,126 @@ export default function DreamSpace() {
               <ArrowLeft size={17} />
             </button>
           </Link>
-          <div>
+          {!immersiveMusic && <div>
             <p className="text-[10px] tracking-[0.22em] uppercase" style={{ color: "rgba(255,255,255,0.16)" }}>
               Dream Space
             </p>
             {!settings?.hasApiKey && (
               <p className="text-[9px] tracking-wider" style={{ color: "rgba(52,211,153,0.4)" }}>demo</p>
             )}
-          </div>
+          </div>}
         </div>
 
-        {/* Character tabs */}
-        <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
-          style={{ background: "rgba(255,255,255,0.03)", position: "relative", left: -28 }}>
-          {DREAM_CHARS.map(cfg => {
-            const active = activeKey === cfg.key;
-            return (
+        {chatVisualStyle === "album-particle" ? (
+          <div
+            className={`absolute top-4 flex items-center rounded-full p-1 ${immersiveMusic ? "right-5" : "left-1/2 -translate-x-1/2"}`}
+            style={{
+              background: "rgba(12,12,24,0.62)",
+              border: "1px solid rgba(255,255,255,0.075)",
+              backdropFilter: "blur(20px)",
+              boxShadow: "0 10px 34px rgba(0,0,0,0.22)",
+            }}
+          >
+            <div className="relative" style={{ display: immersiveMusic ? "none" : undefined }}>
+              <AnimatePresence>
+                {visualStyleOpen && (
+                  <motion.div
+                    className="absolute top-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-36 rounded-2xl p-2 flex flex-col gap-1"
+                    style={{
+                      background: "rgba(8,8,18,0.95)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      boxShadow: "0 10px 34px rgba(0,0,0,0.48)",
+                      zIndex: 60,
+                    }}
+                    initial={{ opacity: 0, y: -5, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  >
+                    <button
+                      onClick={() => { setChatVisualStyle("orb"); setVisualStyleOpen(false); }}
+                      className="rounded-xl px-3 py-2 text-left text-[11px] tracking-wide"
+                      style={{ color: "rgba(255,255,255,0.48)" }}
+                    >
+                      星球粒子
+                    </button>
+                    <button
+                      onClick={() => setVisualStyleOpen(false)}
+                      className="rounded-xl px-3 py-2 text-left text-[11px] tracking-wide"
+                      style={{ color: `hsl(${hsl} / 0.9)`, background: `hsl(${hsl} / 0.13)` }}
+                    >
+                      专辑粒子
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <button
-                key={cfg.key}
-                onClick={() => handleTabClick(cfg.key)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 500,
-                  cursor: "pointer",
-                  background: active ? "rgba(255,255,255,0.12)" : "transparent",
-                  border: `1px solid ${active ? "rgba(255,255,255,0.16)" : "transparent"}`,
-                  color: active ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.28)",
-                  transition: "all 0.3s ease",
-                  outline: "none", whiteSpace: "nowrap",
-                }}
+                onClick={() => setVisualStyleOpen(open => !open)}
+                className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[11px] tracking-wide transition-all"
+                style={{ color: `hsl(${hsl} / 0.82)`, background: `hsl(${hsl} / 0.10)` }}
               >
-                <span style={{
-                  width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
-                  backgroundColor: active ? cfg.particleColor : "rgba(255,255,255,0.18)",
-                  boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
-                  transition: "background-color 0.3s ease",
-                }} />
-                {cfg.name}
+                <Palette size={14} />
+                专辑粒子
               </button>
-            );
-          })}
-        </div>
+            </div>
+            <button
+              onClick={() => switchParticleMode("chat")}
+              className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[11px] tracking-wide transition-all"
+              style={{
+                color: particleMode === "chat" ? "rgba(255,255,255,0.90)" : "rgba(255,255,255,0.34)",
+                background: particleMode === "chat" ? "rgba(255,255,255,0.10)" : "transparent",
+              }}
+            >
+              <MessageCircle size={14} />
+              粒子对话
+            </button>
+            <button
+              onClick={() => switchParticleMode("music")}
+              className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[11px] tracking-wide transition-all"
+              style={{
+                display: immersiveMusic ? "none" : undefined,
+                color: particleMode === "music" ? "rgba(255,255,255,0.90)" : "rgba(255,255,255,0.34)",
+                background: particleMode === "music" ? "rgba(255,255,255,0.10)" : "transparent",
+              }}
+            >
+              <Headphones size={14} />
+              沉浸听歌
+            </button>
+          </div>
+        ) : (
+          /* Original three-persona selector stays exclusive to the sphere style. */
+          <div className="flex items-center gap-0.5 rounded-full px-1 py-1"
+            style={{ background: "rgba(255,255,255,0.03)", position: "relative", left: -28 }}>
+            {DREAM_CHARS.map(cfg => {
+              const active = activeKey === cfg.key;
+              return (
+                <button
+                  key={cfg.key}
+                  onClick={() => handleTabClick(cfg.key)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 500,
+                    cursor: "pointer",
+                    background: active ? "rgba(255,255,255,0.12)" : "transparent",
+                    border: `1px solid ${active ? "rgba(255,255,255,0.16)" : "transparent"}`,
+                    color: active ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.28)",
+                    transition: "all 0.3s ease",
+                    outline: "none", whiteSpace: "nowrap",
+                  }}
+                >
+                  <span style={{
+                    width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                    backgroundColor: active ? cfg.particleColor : "rgba(255,255,255,0.18)",
+                    boxShadow: active ? `0 0 6px ${cfg.particleColor}88` : "none",
+                    transition: "background-color 0.3s ease",
+                  }} />
+                  {cfg.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" style={{ display: immersiveMusic ? "none" : undefined }}>
           {dreamMode === "continue" && (
             <button
               onClick={() => {
@@ -1760,76 +2351,281 @@ export default function DreamSpace() {
             保存
           </button>
         </div>
+
+        {immersiveMusic && (
+          <motion.div
+            data-no-space-drag="true"
+            className="absolute left-1/2 top-2 -translate-x-1/2 flex items-start gap-2"
+            style={{ zIndex: 26 }}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div
+              className="flex flex-col items-stretch"
+              onMouseEnter={() => setMusicSearchOpen(true)}
+              onMouseLeave={() => setMusicSearchOpen(false)}
+              onFocus={() => setMusicSearchOpen(true)}
+              onBlur={event => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMusicSearchOpen(false);
+              }}
+            >
+              {musicSearchOpen ? (
+                <motion.div
+                  className="flex w-[min(72vw,620px)] items-center gap-3 rounded-full px-4 py-2"
+                  style={{
+                    background: "rgba(8,8,18,0.74)",
+                    border: `1px solid hsl(${hsl} / 0.24)`,
+                    backdropFilter: "blur(24px)",
+                    WebkitBackdropFilter: "blur(24px)",
+                    boxShadow: "0 12px 34px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.06)",
+                  }}
+                  initial={{ opacity: 0, width: 44 }}
+                  animate={{ opacity: 1, width: "min(72vw, 620px)" }}
+                >
+                  <Search size={15} style={{ color: `hsl(${hsl} / 0.62)`, flexShrink: 0 }} />
+                  <input
+                    autoFocus
+                    value={neteaseQuery}
+                    onChange={e => setNeteaseQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") void searchNeteaseMusic(); }}
+                    placeholder="搜索歌曲 · 歌手"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                    style={{ color: "rgba(255,255,255,0.78)" }}
+                  />
+                  <button
+                    onClick={() => void searchNeteaseMusic()}
+                    disabled={neteaseLoading}
+                    className="h-9 w-9 rounded-full text-[12px] disabled:opacity-50"
+                    style={{ background: `hsl(${hsl} / 0.22)`, color: `hsl(${hsl} / 0.92)` }}
+                  >
+                    {neteaseLoading ? "…" : "搜"}
+                  </button>
+                  <button
+                    onClick={() => bgMusicInputRef.current?.click()}
+                    className="flex h-9 w-9 items-center justify-center rounded-full"
+                    title="导入本地音乐"
+                    style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.70)" }}
+                  >
+                    <Upload size={15} />
+                  </button>
+                </motion.div>
+              ) : (
+                <button
+                  className="flex h-10 w-10 items-center justify-center rounded-full"
+                  title="搜索音乐"
+                  style={{
+                    background: "rgba(8,8,18,0.42)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "rgba(255,255,255,0.42)",
+                    backdropFilter: "blur(18px)",
+                  }}
+                >
+                  <Search size={15} />
+                </button>
+              )}
+
+              {musicSearchOpen && (neteaseSongs.length > 0 || bgMusicName) && (
+                <div
+                  className="mt-2 w-[min(72vw,620px)] rounded-[24px] p-3"
+                  style={{
+                    background: "rgba(8,8,18,0.82)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    backdropFilter: "blur(26px)",
+                    boxShadow: "0 18px 46px rgba(0,0,0,0.42)",
+                  }}
+                >
+                  {neteaseSongs.length > 0 && (
+                    <div className="max-h-52 overflow-y-auto pr-1 flex flex-col gap-1.5">
+                      {neteaseSongs.map(song => (
+                        <button
+                          key={song.id}
+                          onClick={() => void playNeteaseSong(song)}
+                          className="flex items-center gap-3 rounded-2xl p-2 text-left"
+                          style={{ background: "rgba(255,255,255,0.04)" }}
+                        >
+                          {song.cover ? (
+                            <img src={`${API_BASE}/api/music/netease/cover?url=${encodeURIComponent(song.cover)}`} alt="" className="h-9 w-9 rounded-full object-cover" />
+                          ) : (
+                            <div className="h-9 w-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}><Music2 size={14} /></div>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px]" style={{ color: "rgba(255,255,255,0.76)" }}>{song.name}</span>
+                            <span className="block truncate text-[11px]" style={{ color: "rgba(255,255,255,0.36)" }}>{song.artists.join(" / ") || song.album}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {bgMusicName && (
+                    <div className="mt-2 flex items-center gap-3 px-1">
+                      <button onClick={toggleBgMusic} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: `hsl(${hsl} / 0.20)` }}>
+                        {bgMusicPlaying ? <Pause size={15} /> : <Play size={15} />}
+                      </button>
+                      <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "rgba(255,255,255,0.50)" }}>{bgMusicName}</span>
+                      <input type="range" min={0} max={1} step={0.01} value={bgMusicVolume} onChange={e => setBgMusicVolume(Number(e.target.value))} className="h-[3px] w-24" style={{ accentColor: `hsl(${hsl})` }} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => particleCoverInputRef.current?.click()}
+              className="flex h-10 w-10 items-center justify-center rounded-full"
+              title="更换专辑封面"
+              style={{ background: "rgba(8,8,18,0.42)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.42)", backdropFilter: "blur(18px)" }}
+            >
+              <ImageIcon size={15} />
+            </button>
+            <button
+              onClick={() => setLyricsVisible(value => !value)}
+              disabled={lyrics.length === 0}
+              className="flex h-10 min-w-10 items-center justify-center rounded-full px-3 text-[12px] disabled:opacity-25"
+              title={lyrics.length ? "显示或隐藏 3D 歌词" : "选择网易云歌曲后显示歌词"}
+              style={{ background: lyricsVisible ? `hsl(${hsl} / 0.18)` : "rgba(8,8,18,0.42)", border: `1px solid ${lyricsVisible ? `hsl(${hsl} / 0.24)` : "rgba(255,255,255,0.08)"}`, color: lyricsVisible ? `hsl(${hsl} / 0.88)` : "rgba(255,255,255,0.42)", backdropFilter: "blur(18px)" }}
+            >
+              词
+            </button>
+          </motion.div>
+        )}
       </header>
 
-      {activeKey === "daoshen" && (
-        <motion.div
-          className="relative flex items-center gap-1 rounded-full px-1 py-1 mb-1"
-          style={{
-            zIndex: 20,
-            background: "rgba(255,255,255,0.035)",
-            border: "1px solid rgba(255,255,255,0.055)",
-            backdropFilter: "blur(14px)",
-            left: -28,
-          }}
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22 }}
-        >
-          {DAOSHEN_DIALECTS.map(dialect => {
-            const active = daoshenDialect === dialect.key;
-            return (
-              <button
-                key={dialect.key}
-                onClick={() => setDaoshenDialect(dialect.key)}
-                title={dialect.hint}
-                className="rounded-full px-2.5 py-1 text-[10px] tracking-wide transition-all"
-                style={{
-                  color: active ? "rgba(255,255,255,0.86)" : "rgba(255,255,255,0.28)",
-                  background: active ? `hsl(${hsl} / 0.16)` : "transparent",
-                  border: `1px solid ${active ? `hsl(${hsl} / 0.28)` : "transparent"}`,
-                  boxShadow: active ? `0 0 16px hsl(${hsl} / 0.08)` : "none",
-                }}
-              >
-                {dialect.label}
-              </button>
-            );
-          })}
-        </motion.div>
-      )}
-
       {/* ── CENTER SOUL AREA ── */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-3"
-        style={{ zIndex: 10, position: "relative" }}>
+      <motion.div
+        className="flex-1 flex flex-col items-center justify-center w-full px-6 gap-3"
+        style={{
+          zIndex: 10,
+          position: "relative",
+          transformStyle: "preserve-3d",
+          transformOrigin: "50% 45%",
+        }}
+        animate={{
+          rotateX: spaceTilt.x * 0.72,
+          rotateY: spaceTilt.y * 0.72,
+          x: spaceTilt.y * 1.6,
+          y: -spaceTilt.x * 1.1,
+        }}
+        transition={{ type: "spring", stiffness: 90, damping: 19, mass: 0.68 }}
+      >
 
-        {/* CompanionOrb — clickable wake interaction for all characters */}
-        <motion.div
-          className="relative select-none"
-          style={{ cursor: "pointer" }}
-          animate={wakeClicked ? { scale: [1, 1.07, 1.02] } : { scale: 1 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          onClick={handleOrbClick}
-        >
-          <CompanionOrb
-            size="lg"
-            color={charConfig.companionColor}
-            isSpeaking={orbIsSpeaking}
-            isThinking={false}
-            isListening={false}
-          />
-          <AnimatePresence>
-            {wakeClicked && (
-              <motion.div
-                className="absolute rounded-full pointer-events-none"
-                style={{ inset: "-14px", border: `1.5px solid ${charConfig.companionColor}88` }}
-                initial={{ opacity: 0.8, scale: 0.88 }}
-                animate={{ opacity: 0, scale: 1.55 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.65, ease: "easeOut" }}
-              />
-            )}
-          </AnimatePresence>
-        </motion.div>
+        {chatVisualStyle === "album-particle" ? (
+          <motion.div
+            key="album-particle-stage"
+            className="relative select-none"
+            onPointerDown={event => event.stopPropagation()}
+            style={{
+              width: immersiveMusic ? "min(76vw, calc(100vh - 150px), 920px)" : "min(72vw, 760px)",
+              height: immersiveMusic ? "min(76vw, calc(100vh - 150px), 920px)" : "min(72vw, 760px)",
+              maxHeight: immersiveMusic ? "none" : "calc(100vh - 290px)",
+              maxWidth: immersiveMusic ? "none" : "calc(100vh - 290px)",
+              overflow: "visible",
+              cursor: "grab",
+              filter: "drop-shadow(0 18px 46px rgba(255,170,70,0.08))",
+            }}
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1, y: immersiveMusic ? "-4vh" : 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          >
+            <AlbumParticleStage
+              cover={
+                (particleMode === "music" ? bgMusicCover : null)
+                ?? particleCover
+                ?? getDefaultAlbumParticleCover()
+              }
+              metricsRef={particleAudioMetricsRef}
+              active={particleMode === "music" ? bgMusicPlaying : ttsStatus === "playing"}
+            />
+
+            <AnimatePresence>
+              {immersiveMusic && lyricsVisible && activeLyricIndex >= 0 && (
+                <motion.div
+                  key="immersive-lyrics"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                  style={{ perspective: 1100, transformStyle: "preserve-3d", zIndex: 4 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <motion.div
+                    className="flex w-[82%] flex-col items-center gap-3 text-center"
+                    style={{ transformStyle: "preserve-3d" }}
+                    animate={{ rotateX: -4 + spaceTilt.x * 0.25, rotateY: -11 + spaceTilt.y * 0.35, z: 86 }}
+                    transition={{ type: "spring", stiffness: 85, damping: 20 }}
+                  >
+                    {lyrics.slice(Math.max(0, activeLyricIndex - 2), activeLyricIndex + 3).map((line, visibleIndex) => {
+                      const center = Math.min(2, activeLyricIndex);
+                      const distance = visibleIndex - center;
+                      const current = distance === 0;
+                      return (
+                        <motion.p
+                          key={`${line.time}-${line.text}`}
+                          className={current ? "text-[clamp(22px,3vw,48px)] font-semibold tracking-wide" : "text-[clamp(12px,1.45vw,21px)] tracking-wide"}
+                          style={{
+                            color: current ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.24)",
+                            textShadow: current ? `0 0 20px hsl(${hsl} / 0.52), 0 5px 26px rgba(0,0,0,0.78)` : "0 3px 16px rgba(0,0,0,0.65)",
+                            transform: `translateZ(${current ? 92 : 20 - Math.abs(distance) * 14}px) translateX(${distance * 22}px)`,
+                            opacity: current ? 1 : Math.max(0.16, 0.42 - Math.abs(distance) * 0.12),
+                          }}
+                          initial={{ opacity: 0, y: 16, z: 0 }}
+                          animate={{ opacity: current ? 1 : Math.max(0.16, 0.42 - Math.abs(distance) * 0.12), y: 0, z: current ? 92 : 18 }}
+                          transition={{ duration: 0.42, ease: "easeOut" }}
+                        >
+                          {line.text}
+                        </motion.p>
+                      );
+                    })}
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        ) : (
+          /* CompanionOrb — clickable wake interaction for all characters */
+          <motion.div
+            key="companion-orb-stage"
+            className="relative select-none"
+            style={{
+              cursor: "pointer",
+              transformStyle: "preserve-3d",
+              filter: spaceTilt.dragging
+                ? `drop-shadow(${spaceTilt.y * -0.7}px ${spaceTilt.x * 0.5}px 22px hsl(${hsl} / 0.20))`
+                : `drop-shadow(0 10px 28px hsl(${hsl} / 0.10))`,
+            }}
+            animate={wakeClicked ? { scale: [1, 1.07, 1.02] } : { scale: 1 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            onClick={handleOrbClick}
+          >
+            <CompanionOrb
+              size="lg"
+              color={charConfig.companionColor}
+              isSpeaking={orbIsSpeaking}
+              isThinking={false}
+              isListening={false}
+              interactionRotation={{ x: spaceTilt.x, y: spaceTilt.y }}
+            />
+            <AnimatePresence>
+              {bgMusicCover && (
+                <AlbumParticleCore
+                  cover={bgMusicCover}
+                  playing={bgMusicPlaying}
+                  hsl={hsl}
+                />
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {wakeClicked && (
+                <motion.div
+                  className="absolute rounded-full pointer-events-none"
+                  style={{ inset: "-14px", border: `1.5px solid ${charConfig.companionColor}88` }}
+                  initial={{ opacity: 0.8, scale: 0.88 }}
+                  animate={{ opacity: 0, scale: 1.55 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.65, ease: "easeOut" }}
+                />
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
 
         {/* Name + subtitle — re-animate when character changes */}
         <AnimatePresence mode="wait">
@@ -1840,6 +2636,7 @@ export default function DreamSpace() {
             exit={{ opacity: 0, y: -5 }}
             transition={{ duration: 0.38, ease: "easeOut" }}
             className="flex flex-col items-center gap-1.5 text-center"
+            style={{ display: chatVisualStyle === "album-particle" ? "none" : undefined }}
           >
             <div className="flex items-center gap-2">
               <span className="text-[19px] font-serif tracking-wide" style={{ color: "rgba(255,255,255,0.85)" }}>
@@ -1862,7 +2659,7 @@ export default function DreamSpace() {
 
         {/* ── WAKE SUBTITLE — works for all characters ── */}
         <AnimatePresence>
-          {wakeText !== null && (
+          {chatVisualStyle === "orb" && wakeText !== null && (
             <motion.div
               key="wake-subtitle"
               initial={{ opacity: 0, y: 6, scale: 0.97 }}
@@ -1901,7 +2698,7 @@ export default function DreamSpace() {
 
         {/* ── TTS SUBTITLE PANEL ── */}
         <AnimatePresence>
-          {(ttsStatus === "playing" || ttsStatus === "loading") && wakeText === null && (
+          {chatVisualStyle === "orb" && (ttsStatus === "playing" || ttsStatus === "loading") && wakeText === null && (
             <motion.div
               key="subtitle"
               initial={{ opacity: 0, y: 8, scale: 0.97 }}
@@ -1946,7 +2743,10 @@ export default function DreamSpace() {
         </AnimatePresence>
 
         {/* ── RESPONSE / WELCOME CARD ── */}
-        <div className="w-full max-w-md min-h-[80px] flex items-center justify-center mt-1">
+        <div
+          className="w-full max-w-md min-h-[80px] flex items-center justify-center mt-1"
+          style={{ display: chatVisualStyle === "album-particle" ? "none" : undefined }}
+        >
           <AnimatePresence mode="wait">
             {isThinking ? (
               <motion.div key="thinking"
@@ -2007,10 +2807,10 @@ export default function DreamSpace() {
             )}
           </AnimatePresence>
         </div>
-      </div>
+      </motion.div>
 
       {/* ── HISTORY BOTTOM SHEET ── only when there are messages */}
-      {hasMessages && (
+      {chatVisualStyle === "orb" && hasMessages && !immersiveMusic && (
         <HistoryBottomSheet
           messages={messages}
           charMap={Object.fromEntries(DREAM_CHARS.map(c => [c.key, { name: c.name, enName: c.enName, particleColor: c.particleColor }]))}
@@ -2024,7 +2824,13 @@ export default function DreamSpace() {
 
       {/* ── BOTTOM INPUT ZONE ── */}
       <div className="w-full max-w-md mx-auto px-5 pb-10 pt-3 flex flex-col items-center gap-3 flex-shrink-0"
-        style={{ zIndex: 30, position: "relative" }}>
+        style={{ zIndex: 30, position: "relative", display: immersiveMusic ? "none" : undefined }}>
+
+        <input ref={bgMusicInputRef} type="file" accept="audio/mpeg,audio/wav,audio/x-m4a,audio/*" className="hidden" onChange={handleBgMusicFile} />
+        <input ref={particleCoverInputRef} type="file" accept="image/*" className="hidden" onChange={handleParticleCoverSelect} />
+
+        {!immersiveMusic && (
+          <>
 
         {/* Pending image preview */}
         <AnimatePresence>
@@ -2112,7 +2918,6 @@ export default function DreamSpace() {
             }}
           />
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
-          <input ref={bgMusicInputRef} type="file" accept="audio/mpeg,audio/wav,audio/x-m4a,audio/*" className="hidden" onChange={handleBgMusicFile} />
           <button onClick={() => fileInputRef.current?.click()}
             className="transition-colors flex-shrink-0"
             style={{ color: pendingImageDataUrl ? `hsl(${hsl} / 0.8)` : "rgba(255,255,255,0.18)" }}
@@ -2121,109 +2926,103 @@ export default function DreamSpace() {
             <ImageIcon size={15} />
           </button>
         </div>
+          </>
+        )}
 
         {/* ── Auxiliary toolbar ── */}
         <div className="flex items-center justify-center gap-4 w-full">
-          {/* Atmosphere */}
-          <button onClick={() => setAtmosphereOpen(true)}
-            className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
-            style={{
-              color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)",
-              background: "rgba(255,255,255,0.04)",
-              border: hasAtmosphere ? `1px solid hsl(${hsl} / 0.18)` : "1px solid rgba(255,255,255,0.06)",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.07)";
-              e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-              e.currentTarget.style.borderColor = hasAtmosphere ? `hsl(${hsl} / 0.18)` : "rgba(255,255,255,0.06)";
-            }}>
-            <Sparkles size={15} />
-          </button>
-
-          {/* AI Voice */}
-          <div className="relative">
+          {/* Chat visual style */}
+          <div
+            className="relative"
+            style={{ display: chatVisualStyle === "album-particle" ? "none" : undefined }}
+          >
             <AnimatePresence>
-              {ttsVoiceOpen && (
+              {visualStyleOpen && (
                 <motion.div
-                  className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-52 rounded-2xl p-3 flex flex-col gap-2.5"
+                  className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-40 rounded-2xl p-2 flex flex-col gap-1"
                   style={{
-                    background: "rgba(8,8,18,0.93)",
+                    background: "rgba(8,8,18,0.94)",
                     backdropFilter: "blur(24px)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    boxShadow: "0 4px 32px rgba(0,0,0,0.55)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    boxShadow: "0 8px 34px rgba(0,0,0,0.52)",
                     zIndex: 50,
                   }}
-                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  initial={{ opacity: 0, y: 7, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 5, scale: 0.97 }}
-                  transition={{ duration: 0.18 }}
                 >
-                  {/* Toggle row */}
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[11px] tracking-wide" style={{ color: "rgba(255,255,255,0.45)" }}>
-                      {charConfig.name}语音
-                    </span>
+                  {([
+                    ["orb", "星球粒子"],
+                    ["album-particle", "专辑粒子"],
+                  ] as const).map(([value, label]) => (
                     <button
-                      onClick={() => setTtsEnabled(!ttsEnabled)}
-                      className="relative w-9 h-5 rounded-full transition-all flex-shrink-0"
+                      key={value}
+                      onClick={() => { setChatVisualStyle(value); setVisualStyleOpen(false); }}
+                      className="rounded-xl px-3 py-2 text-left text-[11px] tracking-wide transition-all"
                       style={{
-                        background: ttsEnabled ? `hsl(${hsl} / 0.55)` : "rgba(255,255,255,0.10)",
+                        color: chatVisualStyle === value ? `hsl(${hsl} / 0.9)` : "rgba(255,255,255,0.42)",
+                        background: chatVisualStyle === value ? `hsl(${hsl} / 0.13)` : "transparent",
+                        border: `1px solid ${chatVisualStyle === value ? `hsl(${hsl} / 0.18)` : "transparent"}`,
                       }}
                     >
-                      <motion.span
-                        className="absolute top-[3px] w-[14px] h-[14px] rounded-full"
-                        style={{ background: ttsEnabled ? "#fff" : "rgba(255,255,255,0.40)" }}
-                        animate={{ left: ttsEnabled ? "calc(100% - 17px)" : "3px" }}
-                        transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                      />
+                      {label}
                     </button>
-                  </div>
-
-                  {/* Volume slider */}
-                  {ttsEnabled && (
-                    <div className="flex items-center gap-2 px-1">
-                      <Volume2 size={11} style={{ color: "rgba(255,255,255,0.22)", flexShrink: 0 }} />
-                      <input
-                        type="range" min={0} max={1} step={0.01}
-                        value={ttsVolume}
-                        onChange={e => setTtsVolume(Number(e.target.value))}
-                        className="flex-1 h-[3px] rounded-full cursor-pointer appearance-none"
-                        style={{ accentColor: `hsl(${hsl})` }}
-                      />
-                      <span className="text-[10px] w-7 text-right tabular-nums" style={{ color: "rgba(255,255,255,0.22)" }}>
-                        {Math.round(ttsVolume * 100)}%
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Status hint */}
-                  <p className="text-[10px] px-1 leading-relaxed" style={{ color: "rgba(255,255,255,0.18)" }}>
-                    {ttsEnabled
-                      ? TTS_PLAYBACK_PROFILE[activeKey]?.hint ?? "回复时会用语音朗读"
-                      : "已关闭，只显示文字"}
-                  </p>
+                  ))}
                 </motion.div>
               )}
             </AnimatePresence>
-
             <button
-              onClick={() => setTtsVoiceOpen(s => !s)}
-              className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
+              onClick={() => setVisualStyleOpen(open => !open)}
+              className="flex items-center justify-center gap-1.5 h-9 rounded-full px-3 transition-all"
+              title="切换聊天视觉风格"
               style={{
-                color: ttsVoiceOpen
-                  ? `hsl(${hsl} / 0.75)`
-                  : ttsStatus === "playing"
-                  ? `hsl(${hsl} / 0.65)`
-                  : ttsEnabled
-                  ? "rgba(255,255,255,0.28)"
-                  : "rgba(255,255,255,0.12)",
+                color: visualStyleOpen || chatVisualStyle === "album-particle" ? `hsl(${hsl} / 0.72)` : "rgba(255,255,255,0.24)",
                 background: "rgba(255,255,255,0.04)",
-                border: ttsVoiceOpen || ttsStatus === "playing" || ttsEnabled
+                border: visualStyleOpen || chatVisualStyle === "album-particle"
                   ? `1px solid hsl(${hsl} / 0.18)`
                   : "1px solid rgba(255,255,255,0.06)",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = `hsl(${hsl} / 0.70)`;
+                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+                e.currentTarget.style.borderColor = `hsl(${hsl} / 0.18)`;
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = "rgba(255,255,255,0.24)";
+                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+              }}
+            >
+              <Palette size={15} />
+              <span className="text-[10px] tracking-wide whitespace-nowrap">
+                {chatVisualStyle === "album-particle" ? "专辑粒子" : "风格"}
+              </span>
+            </button>
+          </div>
+
+          {chatVisualStyle === "album-particle" && (
+            <button
+              onClick={() => particleCoverInputRef.current?.click()}
+              className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
+              title="更换粒子封面"
+              style={{
+                color: particleCover ? `hsl(${hsl} / 0.72)` : "rgba(255,255,255,0.24)",
+                background: "rgba(255,255,255,0.04)",
+                border: particleCover ? `1px solid hsl(${hsl} / 0.18)` : "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <ImageIcon size={15} />
+            </button>
+          )}
+
+          {/* Atmosphere */}
+          {(chatVisualStyle === "orb" || chatVisualStyle === "album-particle") && (
+            <button onClick={() => setAtmosphereOpen(true)}
+              className="flex items-center justify-center w-9 h-9 rounded-full transition-all"
+              style={{
+                color: hasAtmosphere ? `hsl(${hsl} / 0.7)` : "rgba(255,255,255,0.20)",
+                background: "rgba(255,255,255,0.04)",
+                border: hasAtmosphere ? `1px solid hsl(${hsl} / 0.18)` : "1px solid rgba(255,255,255,0.06)",
               }}
               onMouseEnter={e => {
                 e.currentTarget.style.background = "rgba(255,255,255,0.07)";
@@ -2231,17 +3030,19 @@ export default function DreamSpace() {
               }}
               onMouseLeave={e => {
                 e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                e.currentTarget.style.borderColor = (ttsVoiceOpen || ttsStatus === "playing" || ttsEnabled)
-                  ? `hsl(${hsl} / 0.18)`
-                  : "rgba(255,255,255,0.06)";
-              }}
-            >
-              {ttsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                e.currentTarget.style.borderColor = hasAtmosphere ? `hsl(${hsl} / 0.18)` : "rgba(255,255,255,0.06)";
+              }}>
+              <Sparkles size={15} />
             </button>
-          </div>
+          )}
 
           {/* Music */}
-          <div className="relative">
+          <div
+            className="relative"
+            style={{
+              display: chatVisualStyle === "album-particle" ? "none" : undefined,
+            }}
+          >
             <AnimatePresence>
               {bgMusicOpen && (
                 <motion.div
@@ -2423,8 +3224,8 @@ export default function DreamSpace() {
               transition={{ opacity: { duration: 1.4, repeat: Infinity }, y: { duration: 0.2 } }}
               className="text-[11px] tracking-[0.2em] -mt-2"
               style={{ color: "rgba(255,255,255,0.32)" }}>
-              {ttsStatus === "loading"  && "阿暖正在开口…"}
-              {ttsStatus === "playing"  && "阿暖正在说话…"}
+              {ttsStatus === "loading"  && `${charConfig.name}正在开口…`}
+              {ttsStatus === "playing"  && `${charConfig.name}正在说话…`}
               {ttsStatus === "blocked"  && (
                 <button
                   onClick={handleManualPlay}
@@ -2469,8 +3270,10 @@ export default function DreamSpace() {
       {/* Hidden background music audio element */}
       <audio
         ref={el => { bgAudioRef.current = el; if (el) el.volume = bgMusicVolume; }}
+        crossOrigin="anonymous"
         loop
         preload="none"
+        onTimeUpdate={event => setMusicCurrentTime(event.currentTarget.currentTime)}
         style={{ display: "none" }}
       />
 

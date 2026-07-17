@@ -1,5 +1,12 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
+
+const proxyUrl = process.env["HTTPS_PROXY"] || process.env["HTTP_PROXY"];
+if (proxyUrl) {
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+  logger.info({ proxy: new URL(proxyUrl).origin }, "HTTP proxy enabled");
+}
 
 const rawPort = process.env["PORT"];
 
