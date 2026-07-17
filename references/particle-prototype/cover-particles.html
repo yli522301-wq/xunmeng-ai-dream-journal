@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>封面粒子系统 — Mineradio 基因提取</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a12;
+    overflow: hidden;
+    font-family: -apple-system, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    height: 100dvh;
+    width: 100vw;
+  }
+  canvas { display: block; }
+
+  /* 极简底部控制栏 */
+  #controls {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: rgba(20, 20, 36, 0.78);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 10px 16px;
+    z-index: 10;
+  }
+  #controls button {
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: #ccc;
+    cursor: pointer;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    padding: 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  #controls button:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  #controls button.playing { background: rgba(255,100,120,0.35); border-color: rgba(255,130,150,0.5); }
+
+  /* 拖入区域提示 */
+  #drop-hint {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.32);
+    font-size: 15px;
+    pointer-events: none;
+    transition: opacity 0.6s;
+    text-align: center;
+    line-height: 1.9;
+    letter-spacing: 0.08em;
+  }
+  #drop-hint.hidden { opacity: 0; }
+
+  /* 清晰度标签 */
+  #res-label {
+    color: rgba(255,255,255,0.55);
+    font-size: 12px;
+    min-width: 52px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="drop-hint">拖入一张图片<br><span style="font-size:12px;opacity:0.6">或点击下方按钮导入专辑封面</span></div>
+
+<div id="controls">
+  <button id="btn-load" title="导入封面">导入封面</button>
+  <span id="res-label">拖拽旋转 · 滚轮缩放</span>
+  <input id="file-input" type="file" accept="image/*" hidden>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ═══════════════════════════════════════════════
+//  基因 1: 圆形粒子贴图 (dot texture)
+//  每个粒子是一张径向渐变圆，不是方形像素
+// ═══════════════════════════════════════════════
+function makeDotTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 31);
+  g.addColorStop(0.00, 'rgba(255,255,255,0.96)');
+  g.addColorStop(0.42, 'rgba(255,255,255,0.78)');
+  g.addColorStop(0.72, 'rgba(255,255,255,0.22)');
+  g.addColorStop(1.00, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+// ═══════════════════════════════════════════════
+//  基因 2: 封面 → 方形画布 (居中裁剪)
+// ═══════════════════════════════════════════════
+function makeSquareCoverCanvas(img, size = 512) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const cx = cv.getContext('2d');
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const s = Math.min(iw, ih);
+  cx.drawImage(img, (iw - s) / 2, (ih - s) / 2, s, s, 0, 0, size, size);
+  return cv;
+}
+
+// ═══════════════════════════════════════════════
+//  基因 3: 粒子网格几何
+//  封面按 grid×grid 像素化，每个像素 → 一个粒子
+//  奇数网格避免中心裂缝
+// ═══════════════════════════════════════════════
+function coverParticleGridForResolution(v) {
+  let grid = Math.round(118 * v);
+  grid = Math.max(88, Math.min(183, grid));
+  return grid % 2 ? grid : grid + 1; // 强制奇数
+}
+
+const PLANE_SIZE = 7.4;
+
+function buildCoverParticleGeometry(grid) {
+  const count = grid * grid;
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  const uvs = new Float32Array(count * 2);
+  const rands = new Float32Array(count);
+  const texelStep = 1 / grid;
+
+  for (let i = 0; i < count; i++) {
+    const gx = i % grid, gy = Math.floor(i / grid);
+    const u = (gx + 0.5) * texelStep;  // texel 中心采样
+    const v = (gy + 0.5) * texelStep;
+    const px = gx / (grid - 1), py = gy / (grid - 1);
+    positions[i * 3]     = (px - 0.5) * PLANE_SIZE;
+    positions[i * 3 + 1] = (py - 0.5) * PLANE_SIZE;
+    positions[i * 3 + 2] = 0;
+    uvs[i * 2]     = u;
+    uvs[i * 2 + 1] = v;
+    rands[i]       = Math.random();
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('aUv',      new THREE.BufferAttribute(uvs, 2));
+  geo.setAttribute('aRand',    new THREE.BufferAttribute(rands, 1));
+  geo.userData = { grid, count };
+  return geo;
+}
+
+// ═══════════════════════════════════════════════
+//  基因 4: 3D Simplex 噪声 (GLSL 实现)
+//  用于粒子位置的自然扰动
+// ═══════════════════════════════════════════════
+const NOISE_GLSL = /* glsl */`
+vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 mod289v(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 perm(vec4 x){return mod289v(((x*34.0)+1.0)*x);}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);
+  const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.0-g;
+  vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;
+  vec3 x2=x0-i2+C.yyy;
+  vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=perm(perm(perm(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=0.142857142857;
+  vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.0*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.0*x_);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.0+1.0; vec4 s1=floor(b1)*2.0+1.0;
+  vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=inversesqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+  m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+float hash11(float p){return fract(sin(p*127.1)*43758.5453123);}
+vec2 safeCoverUv(vec2 uv){return clamp(uv,vec2(0.0012),vec2(0.9988));}
+`;
+
+// ═══════════════════════════════════════════════
+//  基因 5: 顶点 Shader — SILK 模式
+//  封面采样 + 音频驱动 Z 轴涟漪 + mid/treble/bass 扰动
+// ═══════════════════════════════════════════════
+const VERTEX_SHADER = NOISE_GLSL + /* glsl */`
+
+uniform float uTime, uBass, uMid, uTreble, uBeat, uEnergy, uBurstAmt;
+uniform float uIntensity, uSpeed, uTwist, uScatter;
+uniform float uCoverRes, uTintStrength;
+uniform sampler2D uCoverTex;
+uniform vec3 uTintColor;
+attribute vec2 aUv;
+attribute float aRand;
+varying vec3 vColor;
+varying float vBright, vRipple, vAlpha, vSourceLum;
+
+#define PI 3.14159265359
+
+void main(){
+  float t = uTime * uSpeed;
+  vec3 pos = position;
+  vec2 sampleUv = safeCoverUv(aUv);
+  vec3 coverColor = texture2D(uCoverTex, sampleUv).rgb;
+
+  // 粒子默认色 (无封面时用紫蓝渐变)
+  vec3 defaultColor = mix(
+    vec3(0.36, 0.28, 0.72),
+    mix(vec3(0.85, 0.55, 0.95), vec3(0.45, 0.78, 0.95), aUv.x),
+    aUv.y
+  );
+  vColor = mix(defaultColor, coverColor, 1.0); // 始终显示封面
+  vAlpha = 1.0;
+
+  float K = uIntensity * 1.6;
+
+  // === SILK 模式: 平面 + Z轴涟漪 ===
+  // mid 频率驱动 Perlin 扰动
+  float midN = snoise(vec3(pos.x*1.4, pos.y*1.4, t*0.55)) * 0.6
+             + snoise(vec3(pos.x*2.8+5.0, pos.y*2.8-3.0, t*0.85)) * 0.4;
+  float midMask = 0.55 + 0.45 * snoise(vec3(pos.x*0.4, pos.y*0.4, t*0.18));
+  float midDisp = midN * uMid * 0.55 * midMask * K;
+
+  // treble 产生高频抖动
+  float trebleJ = snoise(vec3(pos.x*6.5, pos.y*6.5, t*3.5 + aRand*4.0)) * uTreble * 0.18 * K;
+
+  // bass 产生缓慢呼吸
+  float bassBreath = snoise(vec3(pos.x*0.35, pos.y*0.35, t*0.4)) * uBass * 0.42 * K;
+
+  // 波纹 (模拟音频的涟漪)
+  float rippleZ = 0.0;
+  float beatPulse = uBass * 0.38 * K * (0.5 + 0.5 * sin(t * 2.8 + aRand * 6.28));
+  float distFromCenter = length(pos.xy);
+  rippleZ = beatPulse * exp(-distFromCenter * 1.8) * 0.35;
+
+  pos.z = rippleZ * 1.30 + midDisp + trebleJ + bassBreath;
+
+  // 保持封面自身不自动旋转，外层由用户拖拽控制
+  float angle = 0.0;
+  float cs = cos(angle), sn = sin(angle);
+  pos.xy = mat2(cs, -sn, sn, cs) * pos.xy;
+
+  vSourceLum = dot(max(vColor, vec3(0.0)), vec3(0.299, 0.587, 0.114));
+  vBright = 0.82 + uBass * 0.10 + uEnergy * 0.05 + uBurstAmt * 0.40;
+  vRipple = clamp(abs(rippleZ) * 2.5, 0.0, 1.0);
+
+  vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+  float depthSize = 36.0 / max(0.5, -mvPos.z);
+  float audioBoost = 1.0 + uBass * 0.30 + uBeat * 0.30 + uBurstAmt * 0.5;
+  float sz = clamp(depthSize * audioBoost, 1.05, 4.95);
+  gl_PointSize = sz * 1.0; // uPixel 在 JS 中设为 1
+  gl_Position = projectionMatrix * mvPos;
+}
+`;
+
+// ═══════════════════════════════════════════════
+//  基因 6: 片元 Shader — 粒子渲染
+//  圆形粒子 + 暗粒子边缘高亮 + 亮粒子边缘柔化
+// ═══════════════════════════════════════════════
+const FRAGMENT_SHADER = /* glsl */`
+precision highp float;
+uniform sampler2D uDotTex;
+uniform float uAlpha, uParticleDim;
+varying vec3 vColor;
+varying float vBright, vRipple, vAlpha, vSourceLum;
+
+void main(){
+  vec4 tex = texture2D(uDotTex, gl_PointCoord);
+  if (tex.a < 0.02) discard;
+
+  vec3 col = vColor * vBright;
+  col = mix(col, col * 1.2, vRipple * 0.4);
+
+  // 暗粒子: 边缘加白环 → 提高可读性
+  float dotDist = length(gl_PointCoord - vec2(0.5)) * 2.0;
+  float readableRim = smoothstep(0.44, 0.94, dotDist) * (1.0 - smoothstep(0.94, 1.08, dotDist)) * tex.a;
+  float outLum = dot(col, vec3(0.299, 0.587, 0.114));
+  float lightParticle = smoothstep(0.50, 0.82, outLum) * 1.0;
+  float darkParticle = (1.0 - smoothstep(0.20, 0.50, outLum)) * 1.0;
+  col = mix(col, vec3(0.0), readableRim * lightParticle * 0.38);
+  col = mix(col, vec3(1.0), readableRim * darkParticle * 0.20);
+  col = clamp(col, vec3(0.0), vec3(1.6));
+
+  gl_FragColor = vec4(col, tex.a * uAlpha * uParticleDim * vAlpha);
+}
+`;
+
+// ═══════════════════════════════════════════════
+//  基因 7: Bloom Shader — 加性混合溢光层
+//  更大的粒子 + AdditiveBlending + 二次方柔化
+// ═══════════════════════════════════════════════
+const BLOOM_VS = VERTEX_SHADER.replace(
+  'gl_PointSize = sz * 1.0;',
+  'gl_PointSize = sz * 2.65;' // Bloom 粒子更大
+);
+
+const BLOOM_FS = /* glsl */`
+precision highp float;
+uniform sampler2D uDotTex;
+uniform float uAlpha, uBloomStrength, uParticleDim;
+varying vec3 vColor;
+varying float vBright, vRipple, vAlpha, vSourceLum;
+
+void main(){
+  vec4 tex = texture2D(uDotTex, gl_PointCoord);
+  if (tex.a < 0.01) discard;
+  float soft = tex.a * tex.a; // 二次方软边
+  vec3 col = vColor * (0.55 + vBright * 0.62);
+  col = clamp(col, vec3(0.0), vec3(1.8));
+  float pulse = 1.0 + vRipple * 0.65;
+  float keepBlack = 1.0 - smoothstep(0.025, 0.115, vSourceLum);
+  float bloomKeep = 1.0 - keepBlack * 0.92;
+  gl_FragColor = vec4(col, soft * uAlpha * uBloomStrength * uParticleDim * pulse * 0.55 * vAlpha * bloomKeep);
+}
+`;
+
+// ═══════════════════════════════════════════════
+//  引擎组装
+// ═══════════════════════════════════════════════
+
+// Three.js 初始化
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.z = 7.2;
+
+// 创建 uniforms
+const uniforms = {
+  uTime:       { value: 0 },
+  uBass:       { value: 0 },
+  uMid:        { value: 0 },
+  uTreble:     { value: 0 },
+  uBeat:       { value: 0 },
+  uEnergy:     { value: 0 },
+  uBurstAmt:   { value: 0 },
+  uIntensity:  { value: 0.85 },
+  uSpeed:      { value: 1.0 },
+  uTwist:      { value: 0 },
+  uScatter:    { value: 0 },
+  uCoverRes:   { value: 1.0 },
+  uTintColor:  { value: new THREE.Color('#9db8cf') },
+  uTintStrength:{ value: 0 },
+  uCoverTex:   { value: null },
+  uDotTex:     { value: makeDotTexture() },
+  uAlpha:      { value: 0 },
+  uParticleDim:{ value: 1 },
+  uBloomStrength:{ value: 0.62 },
+};
+
+// 初始几何 (119×119 = 14,161 粒子)
+let GRID_SIZE = 119;
+let geo = buildCoverParticleGeometry(GRID_SIZE);
+
+// 主粒子层
+const mainMaterial = new THREE.ShaderMaterial({
+  uniforms,
+  vertexShader: VERTEX_SHADER,
+  fragmentShader: FRAGMENT_SHADER,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+});
+
+// Bloom 溢光层
+const bloomMaterial = new THREE.ShaderMaterial({
+  uniforms,
+  vertexShader: BLOOM_VS,
+  fragmentShader: BLOOM_FS,
+  transparent: true,
+  depthWrite: false,
+  depthTest: false,
+  blending: THREE.AdditiveBlending,
+});
+
+const bloomParticles = new THREE.Points(geo, bloomMaterial);
+bloomParticles.frustumCulled = false;
+bloomParticles.renderOrder = 0;
+scene.add(bloomParticles);
+
+const particles = new THREE.Points(geo, mainMaterial);
+particles.frustumCulled = false;
+particles.renderOrder = 1;
+scene.add(particles);
+
+// ═══════════════════════════════════════════════
+//  封面加载
+// ═══════════════════════════════════════════════
+let coverTex = null;
+
+async function loadCoverFromImage(img) {
+  const size = GRID_SIZE >= 150 ? 512 : (GRID_SIZE >= 130 ? 384 : 256);
+  const cv = makeSquareCoverCanvas(img, size);
+  const nextTex = new THREE.CanvasTexture(cv);
+  nextTex.minFilter = THREE.LinearFilter;
+  nextTex.magFilter = THREE.LinearFilter;
+  nextTex.needsUpdate = true;
+  if (coverTex) coverTex.dispose();
+  coverTex = nextTex;
+  uniforms.uCoverTex.value = nextTex;
+  uniforms.uAlpha.value = 1;
+  document.getElementById('drop-hint').classList.add('hidden');
+}
+
+async function loadDefaultCover() {
+  const img = new Image();
+  img.onload = () => loadCoverFromImage(img);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+      <defs>
+        <radialGradient id="warm" cx="48%" cy="40%" r="68%">
+          <stop offset="0%" stop-color="#f6d18a"/>
+          <stop offset="42%" stop-color="#b46a28"/>
+          <stop offset="100%" stop-color="#161017"/>
+        </radialGradient>
+        <linearGradient id="shadow" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f8f1d0" stop-opacity="0.80"/>
+          <stop offset="45%" stop-color="#d48735" stop-opacity="0.52"/>
+          <stop offset="100%" stop-color="#05050b" stop-opacity="0.96"/>
+        </linearGradient>
+      </defs>
+      <rect width="512" height="512" fill="#05050b"/>
+      <rect width="512" height="512" fill="url(#warm)" opacity="0.82"/>
+      <circle cx="190" cy="186" r="152" fill="#fff1b5" opacity="0.22"/>
+      <circle cx="342" cy="348" r="176" fill="#331b12" opacity="0.62"/>
+      <rect width="512" height="512" fill="url(#shadow)" opacity="0.76"/>
+    </svg>`;
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+// 拖入封面
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => loadCoverFromImage(img);
+    img.onerror = () => {
+      document.getElementById('drop-hint').classList.remove('hidden');
+      document.getElementById('drop-hint').innerHTML = '这张图片读取失败<br><span style="font-size:12px;opacity:0.6">请换一张 jpg/png/webp 试试</span>';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => loadCoverFromImage(img);
+    img.onerror = () => {
+      document.getElementById('drop-hint').classList.remove('hidden');
+      document.getElementById('drop-hint').innerHTML = '这张图片读取失败<br><span style="font-size:12px;opacity:0.6">请换一张 jpg/png/webp 试试</span>';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+// ═══════════════════════════════════════════════
+//  分辨率调节
+// ═══════════════════════════════════════════════
+function rebuildGeometry(newGrid) {
+  if (newGrid === GRID_SIZE) return;
+  const oldGeo = geo;
+  geo = buildCoverParticleGeometry(newGrid);
+  GRID_SIZE = newGrid;
+  particles.geometry = geo;
+  bloomParticles.geometry = geo;
+  oldGeo.dispose();
+  // 用新分辨率重载封面
+  if (coverTex) {
+    const oldImg = coverTex.image;
+    if (oldImg) {
+      const img = new Image();
+      img.onload = () => loadCoverFromImage(img);
+      img.src = oldImg.src || oldImg.toDataURL();
+    }
+  }
+}
+
+// 导入封面
+document.getElementById('btn-load').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+
+// ═══════════════════════════════════════════════
+//  模拟音频 (手动/自动脉冲)
+// ═══════════════════════════════════════════════
+let audioPlaying = false;
+let audioTime = 0;
+document.getElementById('btn-play').addEventListener('click', function() {
+  audioPlaying = !audioPlaying;
+  this.classList.toggle('playing', audioPlaying);
+  this.textContent = audioPlaying ? '⏸️' : '▶️';
+});
+
+// ═══════════════════════════════════════════════
+//  鼠标交互: 拖拽旋转 / 滚轮缩放
+// ═══════════════════════════════════════════════
+let mouseX = 0, mouseY = 0;
+let targetRotX = 0, targetRotY = 0;
+let isDragging = false;
+let prevMouseX = 0, prevMouseY = 0;
+let rotX = 0, rotY = 0;
+let zoom = 7.2;
+
+document.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+document.addEventListener('mouseup', () => { isDragging = false; });
+document.addEventListener('mousemove', e => {
+  mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  if (isDragging) {
+    rotY += (e.clientX - prevMouseX) * 0.005;
+    rotX += (e.clientY - prevMouseY) * 0.005;
+    prevMouseX = e.clientX;
+    prevMouseY = e.clientY;
+  }
+});
+document.addEventListener('wheel', e => {
+  zoom += e.deltaY * 0.01;
+  zoom = Math.max(3, Math.min(12, zoom));
+});
+
+// 触摸支持
+document.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    isDragging = true;
+    prevMouseX = e.touches[0].clientX;
+    prevMouseY = e.touches[0].clientY;
+  }
+}, { passive: false });
+document.addEventListener('touchmove', e => {
+  if (isDragging && e.touches.length === 1) {
+    rotY += (e.touches[0].clientX - prevMouseX) * 0.005;
+    rotX += (e.touches[0].clientY - prevMouseY) * 0.005;
+    prevMouseX = e.touches[0].clientX;
+    prevMouseY = e.touches[0].clientY;
+  }
+}, { passive: false });
+document.addEventListener('touchend', () => { isDragging = false; });
+
+// ═══════════════════════════════════════════════
+//  动画循环
+// ═══════════════════════════════════════════════
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.1);
+  uniforms.uTime.value += dt;
+
+  // 平滑旋转
+  targetRotX *= 0.92;
+  targetRotY *= 0.92;
+  rotX += (targetRotX - rotX) * 0.08;
+  rotY += (targetRotY - rotY) * 0.08;
+
+  particles.rotation.x = rotX;
+  particles.rotation.y = rotY;
+  bloomParticles.rotation.x = rotX;
+  bloomParticles.rotation.y = rotY;
+
+  camera.position.z += (zoom - camera.position.z) * 0.1;
+
+  // 模拟音频
+  if (audioPlaying) {
+    audioTime += dt;
+    const t = audioTime;
+    // 模拟鼓点 (bass kick)
+    const beatPhase = (t * 2.1) % 1.0;
+    const beat = beatPhase < 0.08 ? Math.sin(beatPhase / 0.08 * Math.PI) : 0;
+    uniforms.uBass.value = beat * 0.9 + Math.sin(t * 0.7) * 0.15 + 0.1;
+    uniforms.uMid.value = Math.abs(Math.sin(t * 1.3)) * 0.4 + Math.abs(Math.sin(t * 3.1)) * 0.25;
+    uniforms.uTreble.value = Math.abs(Math.sin(t * 5.7)) * 0.3 + beat * 0.5;
+    uniforms.uBeat.value = beat;
+    uniforms.uEnergy.value = 0.3 + beat * 0.6;
+    // 每 2 秒一次 burst
+    uniforms.uBurstAmt.value = (t % 2.0 < 0.12) ? (1 - t % 2.0 / 0.12) : 0;
+  } else {
+    // 空闲微动
+    uniforms.uBass.value *= 0.92;
+    uniforms.uMid.value *= 0.92;
+    uniforms.uTreble.value *= 0.92;
+    uniforms.uBeat.value *= 0.88;
+    uniforms.uEnergy.value *= 0.88;
+    uniforms.uBurstAmt.value *= 0.85;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// 窗口自适应
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// 启动
+loadDefaultCover();
+animate();
+
+console.log('🧬 Mineradio 封面粒子基因已加载');
+console.log('   粒子数:', GRID_SIZE * GRID_SIZE);
+console.log('   拖入图片 | 导入封面 | 鼠标拖拽旋转 | 滚轮缩放');
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ import DreamLocalDetail from "./pages/dream-local-detail";
 import DreamMap from "./pages/dream-map";
 import Settings from "./pages/settings";
 import CharacterNew from "./pages/character-new";
+import ChatParticle from "./pages/chat-particle";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ function Router() {
         <Route path="/archive/:id" component={DreamLocalDetail} />
         <Route path="/settings" component={Settings} />
         <Route path="/characters/new" component={CharacterNew} />
+        <Route path="/chat/particle" component={ChatParticle} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
