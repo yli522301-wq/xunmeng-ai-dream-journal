@@ -2621,6 +2621,47 @@ export default function DreamSpace() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Floating AI subtitle — chat particle mode */}
+            {particleMode === "chat" && (
+              <motion.div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
+                style={{ perspective: 1000, transformStyle: "preserve-3d", zIndex: 4 }}
+                initial={false}
+                animate={{ opacity: subtitleText ? 1 : 0 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+              >
+                <motion.div
+                  className="flex flex-col items-center justify-center px-4 text-center"
+                  style={{
+                    maxWidth: "68%",
+                    transformStyle: "preserve-3d",
+                    transform: "translate3d(0, 10vh, 80px) rotateX(-2deg)",
+                  }}
+                >
+                  {subtitleText && (
+                    <p
+                      className="leading-relaxed"
+                      style={{
+                        color: "rgba(255,255,255,0.92)",
+                        fontSize: "clamp(15px, 1.9vw, 26px)",
+                        fontWeight: 320,
+                        letterSpacing: "0.035em",
+                        lineHeight: 1.72,
+                        textShadow: `
+                          0 0 12px hsl(${hsl} / 0.28),
+                          0 0 36px hsl(${hsl} / 0.10),
+                          0 8px 28px rgba(0,0,0,0.48)
+                        `,
+                      }}
+                      key="chat-floating-subtitle"
+                    >
+                      {subtitleText}
+                    </p>
+                  )}
+                </motion.div>
+              </motion.div>
+            )}
           </motion.div>
         ) : (
           /* CompanionOrb — clickable wake interaction for all characters */
