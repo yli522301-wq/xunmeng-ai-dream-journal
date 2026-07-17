@@ -16,7 +16,9 @@ export interface DaoshenRealtimeCallbacks {
 export interface RealtimeError {
   message: string;
   code: "mic_denied" | "ice_timeout" | "handshake_failed" | "proxy_unavailable"
-    | "missing_realtime_access" | "connection_lost" | "channel_error" | "api_error" | "unknown";
+    | "missing_realtime_access" | "invalid_api_key" | "permission_denied"
+    | "rate_limit_or_quota" | "invalid_model" | "invalid_realtime_request"
+    | "openai_unavailable" | "connection_lost" | "channel_error" | "api_error" | "unknown";
 }
 
 const ICE_GATHERING_TIMEOUT_MS = 10_000;
@@ -139,19 +141,53 @@ export class DaoshenRealtimeClient {
         let detail: any = {};
         try { detail = await response.json(); } catch { /* use raw status */ }
 
-        const status = detail.status ?? response.status;
-        const type = detail.type as string | undefined;
-        const message = detail.message as string | undefined;
+        const status: number = detail.status ?? response.status;
+        const type: string | undefined = detail.type;
+        const code: string | undefined = detail.code;
+        const message: string | undefined = detail.message;
+        const requestId: string | undefined = detail.requestId;
 
-        // Categorise the error for the user.
-        if (status === 401 || type === "invalid_request_error" || String(message ?? "").includes("API key")) {
-          this.fail({ message: "API Key 缺少 Realtime 权限", code: "missing_realtime_access" });
-        } else if (status === 402 || type === "insufficient_quota") {
-          this.fail({ message: "API 额度不足", code: "api_error" });
+        // Always log full diagnostic fields to console so the real error is visible.
+        console.error("[daoshen-realtime] handshake failed", {
+          status,
+          requestId,
+          type,
+          code,
+          message,
+        });
+
+        // Precise classification — never bucket unrelated errors together.
+        if (status === 401) {
+          // 401 always means the API key is invalid/expired.
+          this.fail({ message: "API Key 无效或已过期", code: "invalid_api_key" });
+        } else if (status === 403) {
+          const lower = [type, code, message].filter(Boolean).join(" ").toLowerCase();
+          if (/permission|access|scope|model.access|insufficient.permissions/i.test(lower)) {
+            this.fail({ message: "API Key 缺少 Realtime 权限", code: "missing_realtime_access" });
+          } else {
+            this.fail({ message: "API Key 权限不足", code: "permission_denied" });
+          }
+        } else if (status === 429) {
+          this.fail({ message: "请求过于频繁或额度不足", code: "rate_limit_or_quota" });
+        } else if (status >= 500) {
+          this.fail({ message: "OpenAI 服务暂时不可用", code: "openai_unavailable" });
+        } else if (type === "invalid_request_error") {
+          const lower = [code, message].filter(Boolean).join(" ").toLowerCase();
+          if (/invalid_offer/i.test(lower)) {
+            this.fail({ message: "SDP 握手失败", code: "handshake_failed" });
+          } else if (/model_not_found|invalid_model/i.test(lower)) {
+            this.fail({ message: `Realtime 模型不可用: ${String(code ?? message ?? "").slice(0, 80)}`, code: "invalid_model" });
+          } else {
+            const short = String(message ?? code ?? "").slice(0, 100);
+            this.fail({
+              message: short ? `Realtime 请求参数错误: ${short}` : "Realtime 请求参数错误",
+              code: "invalid_realtime_request",
+            });
+          }
         } else if (detail.proxyError) {
           this.fail({ message: "当前代理不可用", code: "proxy_unavailable" });
         } else {
-          const short = String(message ?? "").slice(0, 120);
+          const short = String(message ?? code ?? type ?? "").slice(0, 100);
           this.fail({ message: short ? `Realtime 会话建立失败: ${short}` : "Realtime 会话建立失败", code: "handshake_failed" });
         }
         throw new Error(`Realtime handshake ${status}`);

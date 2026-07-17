@@ -805,34 +805,92 @@ router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
     res.status(503).json({ error: "OpenAI Realtime not configured" }); return;
   }
 
-  const session = {
+  // Minimal session for first-connection diagnostics.  Once the handshake
+  // succeeds we will restore VAD, transcription, noise reduction, and speed
+  // one field at a time.
+  // gpt-4o-realtime-preview was deprecated 2026-02-27; the GA model is gpt-realtime.
+  const model = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
+
+  const session: Record<string, unknown> = {
     type: "realtime",
-    model: process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime-preview",
+    model,
     instructions: DAOSHEN_REALTIME_INSTRUCTIONS,
     output_modalities: ["audio"],
-    max_output_tokens: 900,
     audio: {
-      input: {
-        noise_reduction: { type: "near_field" },
+      output: {
+        voice: "cedar",
+      },
+    },
+  };
+
+  // ── Phase 2: restore VAD-based interruption ─────────────────────────────
+  // Only add turn_detection after the minimal session proves the model &
+  // API key are correct.  Invalid turn_detection params are a common source
+  // of invalid_request_error on GA models.
+  const enableVad = process.env.OPENAI_REALTIME_ENABLE_VAD !== "0"; // default on
+  if (enableVad) {
+    (session.audio as Record<string, unknown>).input = {
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.48,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 520,
+        create_response: true,
+        interrupt_response: true,
+      },
+    };
+  }
+
+  // ── Phase 3: restore transcription ──────────────────────────────────────
+  const enableTranscription = process.env.OPENAI_REALTIME_ENABLE_TRANSCRIPTION !== "0"; // default on
+  if (enableTranscription) {
+    const input = (session.audio as Record<string, unknown>).input as Record<string, unknown> | undefined;
+    if (input) {
+      input.transcription = {
+        model: "gpt-4o-mini-transcribe",
+        language: "zh",
+        prompt: "中文梦境对话，人物名：岛深、暮歌、阿暖。",
+      };
+    } else {
+      (session.audio as Record<string, unknown>).input = {
         transcription: {
           model: "gpt-4o-mini-transcribe",
           language: "zh",
           prompt: "中文梦境对话，人物名：岛深、暮歌、阿暖。",
         },
-        turn_detection: {
-          type: "server_vad",
-          threshold: 0.48,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 520,
-          create_response: true,
-          interrupt_response: true,
-        },
-      },
-      output: {
-        voice: "cedar",
-        speed: 0.88,
-      },
-    },
+      };
+    }
+  }
+
+  // ── Phase 4: restore noise reduction ────────────────────────────────────
+  if (process.env.OPENAI_REALTIME_ENABLE_NOISE_REDUCTION === "1") {
+    const input = (session.audio as Record<string, unknown>).input as Record<string, unknown> | undefined;
+    if (input) {
+      input.noise_reduction = { type: "near_field" };
+    }
+  }
+
+  // ── Phase 5: restore speed ──────────────────────────────────────────────
+  if (process.env.OPENAI_REALTIME_SPEED) {
+    const speed = Number(process.env.OPENAI_REALTIME_SPEED);
+    if (!Number.isNaN(speed)) {
+      ((session.audio as Record<string, unknown>).output as Record<string, unknown>).speed = speed;
+    }
+  }
+
+  // ── Log the session shape (no values) for diagnostics ───────────────────
+  const sessionShape = {
+    type: session.type,
+    model: session.model,
+    output_modalities: session.output_modalities,
+    voice: (session.audio as Record<string, unknown>).output
+      ? ((session.audio as Record<string, unknown>).output as Record<string, unknown>).voice
+      : undefined,
+    hasInput: !!(session.audio as Record<string, unknown>).input,
+    hasTurnDetection: !!((session.audio as Record<string, unknown>).input as Record<string, unknown> | undefined)?.turn_detection,
+    hasTranscription: !!((session.audio as Record<string, unknown>).input as Record<string, unknown> | undefined)?.transcription,
+    hasNoiseReduction: !!((session.audio as Record<string, unknown>).input as Record<string, unknown> | undefined)?.noise_reduction,
+    hasSpeed: !!((session.audio as Record<string, unknown>).output as Record<string, unknown> | undefined)?.speed,
   };
 
   try {
@@ -842,6 +900,8 @@ router.post("/ai/realtime/daoshen/call", async (req, res): Promise<void> => {
     const form = new FormData();
     form.append("sdp", sdp);
     form.append("session", JSON.stringify(session));
+
+    req.log.info(sessionShape, "OpenAI Realtime call — session shape");
 
     const upstream = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
